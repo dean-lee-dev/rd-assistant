@@ -1,0 +1,12 @@
+{
+  "name": "rd-assistant",
+  "private": true,
+  "description": "个人研发效能助手 Monorepo",
+  "scripts": {
+    "api": "npm --prefix apps/api run start:dev",
+    "api:build": "npm --prefix apps/api run build",
+    "web": "npm --prefix apps/web start",
+    "web:build": "npm --prefix apps/web run build",
+    "install:all": "npm --prefix apps/api install && npm --prefix apps/web install"
+  }
+}
