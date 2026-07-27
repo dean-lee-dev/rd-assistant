@@ -9,6 +9,7 @@ import {
   WorktimeImport,
 } from '../entities';
 import { AiService } from '../ai/ai.service';
+import { decodeMulterFilename } from '../common/filename';
 import {
   WORKTIME_ALIASES,
   buildColumnMap,
@@ -75,7 +76,7 @@ export class WorktimeService {
 
     const entity = await this.imports.save(
       this.imports.create({
-        fileName: file.originalname,
+        fileName: decodeMulterFilename(file.originalname),
         records,
         columnMap: Object.fromEntries(
           Object.entries(colMap).map(([k, v]) => [k, headers[v] || String(v)]),
@@ -101,7 +102,7 @@ export class WorktimeService {
       import: imp[0]
         ? {
             id: imp[0].id,
-            fileName: imp[0].fileName,
+            fileName: decodeMulterFilename(imp[0].fileName),
             rowCount: imp[0].rowCount,
             columnMap: imp[0].columnMap,
             createdAt: imp[0].createdAt,

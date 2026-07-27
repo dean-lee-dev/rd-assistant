@@ -8,6 +8,12 @@ export interface ChatMessage {
   content: string;
 }
 
+interface TokenUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
 @Injectable()
 export class AiService {
   constructor(
@@ -23,6 +29,14 @@ export class AiService {
           baseUrl: 'https://api.deepseek.com',
           model: 'deepseek-v4-flash',
           apiKey: null,
+          promptTokensTotal: 0,
+          completionTokensTotal: 0,
+          totalTokensTotal: 0,
+          requestCount: 0,
+          lastPromptTokens: 0,
+          lastCompletionTokens: 0,
+          lastTotalTokens: 0,
+          usageUpdatedAt: null,
         }),
       );
     }
@@ -37,6 +51,16 @@ export class AiService {
       model: s.model,
       apiKeyConfigured: Boolean(s.apiKey),
       apiKeyMasked: s.apiKey ? maskKey(s.apiKey) : null,
+      usage: {
+        promptTokensTotal: s.promptTokensTotal || 0,
+        completionTokensTotal: s.completionTokensTotal || 0,
+        totalTokensTotal: s.totalTokensTotal || 0,
+        requestCount: s.requestCount || 0,
+        lastPromptTokens: s.lastPromptTokens || 0,
+        lastCompletionTokens: s.lastCompletionTokens || 0,
+        lastTotalTokens: s.lastTotalTokens || 0,
+        usageUpdatedAt: s.usageUpdatedAt,
+      },
     };
   }
 
@@ -57,12 +81,26 @@ export class AiService {
     return this.getPublicSetting();
   }
 
+  async resetUsage() {
+    const s = await this.getSetting();
+    s.promptTokensTotal = 0;
+    s.completionTokensTotal = 0;
+    s.totalTokensTotal = 0;
+    s.requestCount = 0;
+    s.lastPromptTokens = 0;
+    s.lastCompletionTokens = 0;
+    s.lastTotalTokens = 0;
+    s.usageUpdatedAt = null;
+    await this.settings.save(s);
+    return this.getPublicSetting();
+  }
+
   async testConnection() {
     const reply = await this.chat(
       [{ role: 'user', content: '请只回复：ok' }],
       { temperature: 0, maxTokens: 16 },
     );
-    return { ok: true, reply: reply.slice(0, 200) };
+    return { ok: true, reply: reply.slice(0, 200), ...(await this.getPublicSetting()) };
   }
 
   async chat(
@@ -77,7 +115,7 @@ export class AiService {
     return full;
   }
 
-  /** OpenAI 兼容流式输出，逐段 yield 文本 delta */
+  /** OpenAI 兼容流式输出，逐段 yield 文本 delta；并累计 usage */
   async *chatStream(
     messages: ChatMessage[],
     opts?: { temperature?: number; maxTokens?: number },
@@ -87,20 +125,40 @@ export class AiService {
       throw new BadRequestException('未配置 AI API Key，请先在系统配置中填写');
     }
     const url = `${s.baseUrl.replace(/\/$/, '')}/v1/chat/completions`;
-    const res = await fetch(url, {
+    const payloadBase = {
+      model: s.model,
+      messages,
+      temperature: opts?.temperature ?? 0.3,
+      max_tokens: opts?.maxTokens ?? 4096,
+      stream: true,
+    };
+    let res = await fetch(url, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${s.apiKey}`,
       },
       body: JSON.stringify({
-        model: s.model,
-        messages,
-        temperature: opts?.temperature ?? 0.3,
-        max_tokens: opts?.maxTokens ?? 4096,
-        stream: true,
+        ...payloadBase,
+        stream_options: { include_usage: true },
       }),
     });
+    // 部分兼容接口不支持 stream_options，降级重试
+    if (!res.ok) {
+      const text = await res.text();
+      if (/stream_options|unknown|unsupported|invalid/i.test(text)) {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${s.apiKey}`,
+          },
+          body: JSON.stringify(payloadBase),
+        });
+      } else {
+        throw new BadRequestException(`AI 调用失败 (${res.status}): ${text.slice(0, 500)}`);
+      }
+    }
     if (!res.ok) {
       const text = await res.text();
       throw new BadRequestException(`AI 调用失败 (${res.status}): ${text.slice(0, 500)}`);
@@ -110,6 +168,8 @@ export class AiService {
     const reader = res.body.getReader();
     const decoder = new TextDecoder('utf-8');
     let buffer = '';
+    let lastUsage: TokenUsage | null = null;
+
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -121,11 +181,16 @@ export class AiService {
         if (!line || line.startsWith(':')) continue;
         if (!line.startsWith('data:')) continue;
         const data = line.slice(5).trim();
-        if (data === '[DONE]') return;
+        if (data === '[DONE]') {
+          if (lastUsage) await this.recordUsage(lastUsage);
+          return;
+        }
         try {
           const json = JSON.parse(data) as {
             choices?: { delta?: { content?: string }; message?: { content?: string } }[];
+            usage?: TokenUsage;
           };
+          if (json.usage) lastUsage = json.usage;
           const delta = json.choices?.[0]?.delta?.content ?? json.choices?.[0]?.message?.content;
           if (delta) yield delta;
         } catch {
@@ -133,6 +198,26 @@ export class AiService {
         }
       }
     }
+    if (lastUsage) await this.recordUsage(lastUsage);
+  }
+
+  private async recordUsage(usage: TokenUsage) {
+    const prompt = Math.max(0, Number(usage.prompt_tokens) || 0);
+    const completion = Math.max(0, Number(usage.completion_tokens) || 0);
+    const total =
+      Math.max(0, Number(usage.total_tokens) || 0) || prompt + completion;
+    if (!prompt && !completion && !total) return;
+
+    const s = await this.getSetting();
+    s.promptTokensTotal = (s.promptTokensTotal || 0) + prompt;
+    s.completionTokensTotal = (s.completionTokensTotal || 0) + completion;
+    s.totalTokensTotal = (s.totalTokensTotal || 0) + total;
+    s.requestCount = (s.requestCount || 0) + 1;
+    s.lastPromptTokens = prompt;
+    s.lastCompletionTokens = completion;
+    s.lastTotalTokens = total;
+    s.usageUpdatedAt = new Date();
+    await this.settings.save(s);
   }
 }
 

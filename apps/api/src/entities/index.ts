@@ -38,6 +38,34 @@ export class AiSetting {
   @Column({ type: 'text', nullable: true })
   apiKey!: string | null;
 
+  /** 累计 prompt tokens */
+  @Column({ type: 'integer', default: 0 })
+  promptTokensTotal!: number;
+
+  /** 累计 completion tokens */
+  @Column({ type: 'integer', default: 0 })
+  completionTokensTotal!: number;
+
+  /** 累计 total tokens */
+  @Column({ type: 'integer', default: 0 })
+  totalTokensTotal!: number;
+
+  /** 累计请求次数 */
+  @Column({ type: 'integer', default: 0 })
+  requestCount!: number;
+
+  @Column({ type: 'integer', default: 0 })
+  lastPromptTokens!: number;
+
+  @Column({ type: 'integer', default: 0 })
+  lastCompletionTokens!: number;
+
+  @Column({ type: 'integer', default: 0 })
+  lastTotalTokens!: number;
+
+  @Column({ type: 'datetime', nullable: true })
+  usageUpdatedAt!: Date | null;
+
   @UpdateDateColumn()
   updatedAt!: Date;
 }

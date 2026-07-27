@@ -40,4 +40,9 @@ export class SettingsController {
   test() {
     return this.ai.testConnection();
   }
+
+  @Post('usage/reset')
+  resetUsage() {
+    return this.ai.resetUsage();
+  }
 }

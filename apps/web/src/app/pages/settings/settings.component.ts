@@ -1,4 +1,5 @@
 import { Component, OnInit, inject } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 import { NzAlertModule } from 'ng-zorro-antd/alert';
@@ -11,12 +12,24 @@ import { NzSelectModule } from 'ng-zorro-antd/select';
 import { API_BASE } from '../../core/api/api-base';
 import { AuthService } from '../../core/auth/auth.service';
 
+interface AiUsage {
+  promptTokensTotal: number;
+  completionTokensTotal: number;
+  totalTokensTotal: number;
+  requestCount: number;
+  lastPromptTokens: number;
+  lastCompletionTokens: number;
+  lastTotalTokens: number;
+  usageUpdatedAt: string | null;
+}
+
 interface AiSettings {
   provider: string;
   baseUrl: string;
   model: string;
   apiKeyConfigured: boolean;
   apiKeyMasked: string | null;
+  usage?: AiUsage;
 }
 
 interface ProviderPreset {
@@ -107,6 +120,7 @@ const AI_PROVIDERS: ProviderPreset[] = [
   selector: 'app-settings',
   standalone: true,
   imports: [
+    CommonModule,
     FormsModule,
     NzAlertModule,
     NzButtonModule,
@@ -123,6 +137,53 @@ const AI_PROVIDERS: ProviderPreset[] = [
         [nzMessage]="'当前用户：' + (auth.user()?.username || '管理员')"
         class="notice"
       ></nz-alert>
+
+      <div class="usage-panel">
+        <div class="usage-head">
+          <div>
+            <div class="usage-title">Token 用量提醒</div>
+            <div class="usage-sub muted">
+              基于本应用实际调用累计（厂商侧账单以官方后台为准）
+              @if (usage.usageUpdatedAt) {
+                · 最近更新 {{ usage.usageUpdatedAt | date: 'yyyy-MM-dd HH:mm' }}
+              }
+            </div>
+          </div>
+          <button
+            nz-button
+            nzSize="small"
+            (click)="resetUsage()"
+            [nzLoading]="resetting"
+            [disabled]="!usage.totalTokensTotal && !usage.requestCount"
+          >
+            清零统计
+          </button>
+        </div>
+        <div class="usage-grid">
+          <div class="usage-item">
+            <div class="num">{{ formatNum(usage.totalTokensTotal) }}</div>
+            <div class="label">累计 Total</div>
+          </div>
+          <div class="usage-item">
+            <div class="num">{{ formatNum(usage.promptTokensTotal) }}</div>
+            <div class="label">累计 Prompt</div>
+          </div>
+          <div class="usage-item">
+            <div class="num">{{ formatNum(usage.completionTokensTotal) }}</div>
+            <div class="label">累计 Completion</div>
+          </div>
+          <div class="usage-item">
+            <div class="num">{{ formatNum(usage.requestCount) }}</div>
+            <div class="label">调用次数</div>
+          </div>
+        </div>
+        <div class="usage-last muted">
+          最近一次：Prompt {{ formatNum(usage.lastPromptTokens) }} · Completion
+          {{ formatNum(usage.lastCompletionTokens) }} · Total
+          {{ formatNum(usage.lastTotalTokens) }}
+        </div>
+      </div>
+
       <form nz-form nzLayout="vertical">
         <nz-form-item>
           <nz-form-label>Provider（厂商）</nz-form-label>
@@ -224,6 +285,57 @@ const AI_PROVIDERS: ProviderPreset[] = [
       .notice {
         margin-bottom: 20px;
       }
+      .usage-panel {
+        margin-bottom: 20px;
+        padding: 14px 16px;
+        background: #f6ffed;
+        border: 1px solid #b7eb8f;
+        border-radius: 8px;
+      }
+      .usage-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .usage-title {
+        font-weight: 600;
+        color: #389e0d;
+      }
+      .usage-sub {
+        margin-top: 4px;
+        font-size: 12px;
+      }
+      .usage-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .usage-item {
+        background: #fff;
+        border: 1px solid #d9f7be;
+        border-radius: 8px;
+        padding: 10px 12px;
+      }
+      .usage-item .num {
+        font-size: 18px;
+        font-weight: 650;
+        color: #237804;
+        font-variant-numeric: tabular-nums;
+      }
+      .usage-item .label {
+        margin-top: 2px;
+        font-size: 12px;
+        color: #8c8c8c;
+      }
+      .usage-last {
+        margin-top: 10px;
+        font-size: 12px;
+      }
+      .muted {
+        color: #8c8c8c;
+      }
       button + button {
         margin-left: 8px;
       }
@@ -231,6 +343,11 @@ const AI_PROVIDERS: ProviderPreset[] = [
         display: block;
         margin-top: 6px;
         color: #8c8c8c;
+      }
+      @media (max-width: 720px) {
+        .usage-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
       }
     `,
   ],
@@ -251,9 +368,25 @@ export class SettingsComponent implements OnInit {
   apiKey = '';
   saving = false;
   testing = false;
+  resetting = false;
   testResult = '';
   modelSearch = '';
   baseUrlSearch = '';
+
+  get usage(): AiUsage {
+    return (
+      this.settings.usage || {
+        promptTokensTotal: 0,
+        completionTokensTotal: 0,
+        totalTokensTotal: 0,
+        requestCount: 0,
+        lastPromptTokens: 0,
+        lastCompletionTokens: 0,
+        lastTotalTokens: 0,
+        usageUpdatedAt: null,
+      }
+    );
+  }
 
   get currentProvider(): ProviderPreset {
     return (
@@ -280,15 +413,27 @@ export class SettingsComponent implements OnInit {
   }
 
   ngOnInit(): void {
+    this.loadSettings();
+    this.auth.loadCurrentUser();
+  }
+
+  formatNum(n: number): string {
+    return (n || 0).toLocaleString('zh-CN');
+  }
+
+  loadSettings(): void {
     this.http.get<AiSettings>(`${API_BASE}/settings/ai`).subscribe({
       next: (settings) => {
-        this.settings = settings;
-        if (!this.providers.some((p) => p.id === settings.provider)) {
-          this.settings.provider = 'custom';
-        }
+        this.applySettings(settings);
       },
     });
-    this.auth.loadCurrentUser();
+  }
+
+  applySettings(settings: AiSettings): void {
+    this.settings = settings;
+    if (!this.providers.some((p) => p.id === settings.provider)) {
+      this.settings.provider = 'custom';
+    }
   }
 
   onProviderChange(providerId: string): void {
@@ -323,7 +468,7 @@ export class SettingsComponent implements OnInit {
     };
     this.http.put<AiSettings>(`${API_BASE}/settings/ai`, body).subscribe({
       next: (settings) => {
-        this.settings = settings;
+        this.applySettings(settings);
         this.apiKey = '';
         this.saving = false;
         this.message.success('AI 配置已保存');
@@ -338,14 +483,32 @@ export class SettingsComponent implements OnInit {
   test(): void {
     this.testing = true;
     this.testResult = '';
-    this.http.post<{ ok: boolean; reply: string }>(`${API_BASE}/settings/ai/test`, {}).subscribe({
-      next: (result) => {
-        this.testing = false;
-        this.testResult = `连接成功：${result.reply}`;
+    this.http
+      .post<AiSettings & { ok: boolean; reply: string }>(`${API_BASE}/settings/ai/test`, {})
+      .subscribe({
+        next: (result) => {
+          this.testing = false;
+          this.testResult = `连接成功：${result.reply}`;
+          this.applySettings(result);
+        },
+        error: (error: { error?: { message?: string } }) => {
+          this.testing = false;
+          this.message.error(error.error?.message || '连接失败');
+        },
+      });
+  }
+
+  resetUsage(): void {
+    this.resetting = true;
+    this.http.post<AiSettings>(`${API_BASE}/settings/ai/usage/reset`, {}).subscribe({
+      next: (settings) => {
+        this.applySettings(settings);
+        this.resetting = false;
+        this.message.success('Token 统计已清零');
       },
       error: (error: { error?: { message?: string } }) => {
-        this.testing = false;
-        this.message.error(error.error?.message || '连接失败');
+        this.resetting = false;
+        this.message.error(error.error?.message || '清零失败');
       },
     });
   }
