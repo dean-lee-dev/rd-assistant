@@ -17,45 +17,84 @@ import { NzMessageService } from 'ng-zorro-antd/message';
 import { NzRadioModule } from 'ng-zorro-antd/radio';
 import { NzTagModule } from 'ng-zorro-antd/tag';
 import { API_BASE } from '../../core/api/api-base';
-import { AuthService } from '../../core/auth/auth.service';
 import { MdViewComponent } from '../../shared/md-view.component';
-import { postSse } from '../../shared/sse-client';
+import { SseClient } from '../../shared/sse-client.service';
 
+/** 周报区块内容视图模式：原始规则版 / AI 润色版 */
 type ContentMode = 'original' | 'ai';
 
+/**
+ * 周报正文结构。
+ * HTML 字段供富文本编辑；其余字段为规则/AI 聚合的结构化数据与摘要。
+ */
 interface ReportContent {
+  /** 本周完成工作（原始 HTML） */
   completedWorkHtml: string;
+  /** 本周完成工作（AI 润色 HTML） */
   completedWorkHtmlAi: string;
+  /** 下周计划（原始 HTML） */
   nextWeekPlanHtml: string;
+  /** 下周计划（AI 润色 HTML） */
   nextWeekPlanHtmlAi: string;
+  /** 已完成任务列表（结构化，可选） */
   completedTasks?: unknown[];
+  /** 缺陷列表（结构化，可选） */
   defects?: unknown[];
+  /** 下周计划条目（结构化，可选） */
   nextWeekPlan?: unknown[];
+  /** 目标完成率文案（可选） */
   goalRate?: string;
+  /** 本周工作总结（可选） */
   summary?: string;
+  /** 下周想法/补充（可选） */
   nextWeekIdeas?: string;
+  /** 需协调/帮助事项（可选） */
   needsHelp?: string;
 }
+
+/** 右侧 AI 对话的一轮消息（用户或助手） */
 interface ChatTurn {
+  /** 发言角色 */
   role: 'user' | 'assistant';
+  /** 消息正文（助手侧支持 Markdown） */
   content: string;
+  /** 可选时间戳 */
   at?: string;
 }
+
+/** 服务端返回的周报实体 */
 interface Report {
+  /** 周报 ID */
   id: number;
+  /** 周报内容 */
   content: ReportContent;
+  /** 是否已使用过 AI */
   aiUsed: boolean;
+  /** AI 失败时的错误信息，成功则为 null */
   aiError: string | null;
+  /** 持久化的对话历史（可选） */
   chatMessages?: ChatTurn[] | null;
 }
+
+/**
+ * 「最近一次」工时导入 + 周报的聚合响应。
+ * 用于页面初始化回填。
+ */
 interface LatestResponse {
+  /** 最近一次 Excel 导入摘要；无导入则为 null */
   import: { id: number; fileName: string; rowCount: number } | null;
+  /** 关联周报；尚未生成则为 null */
   report: Report | null;
 }
 
+/**
+ * 工时周报页 — Excel 导入、周报生成/编辑/导出、AI 润色、右侧流式对话。
+ *
+ * 左侧：上传工时 Excel → 按规则生成周报 → 分区块编辑（原始/AI 双视图）→ 复制/导出。
+ * 右侧：基于当前周报的 AI 助手，SSE 流式输出，支持快捷提问与清空历史。
+ */
 @Component({
   selector: 'app-weekly-report',
-  standalone: true,
   imports: [
     CommonModule,
     FormsModule,
@@ -67,349 +106,72 @@ interface LatestResponse {
     NzTagModule,
     MdViewComponent,
   ],
-  template: `
-    <nz-card nzTitle="工时周报" [nzExtra]="actions">
-      <ng-template #actions>
-        <input #fileInput type="file" accept=".xlsx,.xls" hidden (change)="onFileChange($event)" />
-        <button nz-button (click)="fileInput.click()" [nzLoading]="uploading">上传 Excel</button>
-        <button
-          nz-button
-          nzType="primary"
-          (click)="generate()"
-          [nzLoading]="generating"
-          [disabled]="!importId"
-        >
-          生成周报
-        </button>
-      </ng-template>
-      @if (importName) {
-        <p>最近导入：<strong>{{ importName }}</strong>，共 {{ rowCount }} 条记录。</p>
-      } @else {
-        <p class="muted">请先上传工时 Excel。</p>
-      }
-      @for (warning of warnings; track warning) {
-        <nz-alert nzType="warning" nzShowIcon [nzMessage]="warning" class="notice"></nz-alert>
-      }
-      @if (report?.aiError) {
-        <nz-alert
-          nzType="warning"
-          nzShowIcon
-          [nzMessage]="'AI 未完成：' + report?.aiError + '（已使用规则汇总）'"
-          class="notice"
-        ></nz-alert>
-      }
-    </nz-card>
-
-    @if (report) {
-      <div class="split">
-        <nz-card class="left" nzTitle="周报汇总" [nzExtra]="copyActions">
-          <ng-template #copyActions>
-            <button nz-button (click)="exportSection('completed', 'md')">导出本周 Markdown</button>
-            <button nz-button (click)="exportSection('completed', 'html')">导出本周富文本</button>
-            <button nz-button (click)="exportSection('plan', 'md')">导出下周 Markdown</button>
-            <button nz-button nzType="primary" (click)="exportSection('plan', 'html')">导出下周富文本</button>
-            <button nz-button (click)="save()" [nzLoading]="saving">保存</button>
-          </ng-template>
-
-          <div class="section">
-            <div class="section-head">
-              <div class="section-title">本周完成工作</div>
-              <div class="mode-row">
-                <nz-radio-group
-                  [(ngModel)]="completedMode"
-                  (ngModelChange)="onCompletedModeChange($event)"
-                  nzButtonStyle="solid"
-                  nzSize="small"
-                >
-                  <label nz-radio-button nzValue="original">原始</label>
-                  <label nz-radio-button nzValue="ai">AI 润色</label>
-                </nz-radio-group>
-                <button
-                  nz-button
-                  nzSize="small"
-                  (click)="optimizeSection('completed')"
-                  [nzLoading]="optimizingCompleted"
-                >
-                  {{ report.content.completedWorkHtmlAi ? '重新 AI 润色' : '生成 AI 润色' }}
-                </button>
-              </div>
-            </div>
-            <div
-              #completedBox
-              class="rich-box"
-              contenteditable="true"
-              (input)="onCompletedInput($event)"
-            ></div>
-          </div>
-
-          <div class="section">
-            <div class="section-head">
-              <div class="section-title">下周工作计划</div>
-              <div class="mode-row">
-                <nz-radio-group
-                  [(ngModel)]="planMode"
-                  (ngModelChange)="onPlanModeChange($event)"
-                  nzButtonStyle="solid"
-                  nzSize="small"
-                >
-                  <label nz-radio-button nzValue="original">原始</label>
-                  <label nz-radio-button nzValue="ai">AI 润色</label>
-                </nz-radio-group>
-                <button
-                  nz-button
-                  nzSize="small"
-                  (click)="optimizeSection('plan')"
-                  [nzLoading]="optimizingPlan"
-                >
-                  {{ report.content.nextWeekPlanHtmlAi ? '重新 AI 润色' : '生成 AI 润色' }}
-                </button>
-              </div>
-            </div>
-            <div
-              #planBox
-              class="rich-box"
-              contenteditable="true"
-              (input)="onPlanInput($event)"
-            ></div>
-          </div>
-        </nz-card>
-
-        <nz-card class="right" nzTitle="ai小助手对话" [nzExtra]="chatExtra">
-          <ng-template #chatExtra>
-            <button nz-button nzSize="small" (click)="clearChat()" [disabled]="!chatMessages.length">
-              清空对话
-            </button>
-          </ng-template>
-          <p class="muted chat-hint">可基于左侧周报继续追问、润色或讨论本周工作。</p>
-          <div class="chat-quick">
-            @for (q of quickQuestions; track q) {
-              <nz-tag class="quick" (click)="askQuick(q)">{{ q }}</nz-tag>
-            }
-          </div>
-          <div class="chat-list" #chatList>
-            @if (!chatMessages.length && !chatting) {
-              <div class="muted empty-chat">暂无对话，在下方输入后开始沟通。</div>
-            }
-            @for (msg of chatMessages; track $index) {
-              <div
-                class="bubble"
-                [class.user]="msg.role === 'user'"
-                [class.assistant]="msg.role === 'assistant'"
-              >
-                <div class="role">{{ msg.role === 'user' ? '我' : 'ai小助手' }}</div>
-                @if (msg.role === 'assistant') {
-                  <div class="content md">
-                    <app-md-view
-                      [content]="msg.content"
-                      [streaming]="chatting && $index === chatMessages.length - 1"
-                    ></app-md-view>
-                  </div>
-                } @else {
-                  <div class="content pre">{{ msg.content }}</div>
-                }
-              </div>
-            }
-          </div>
-          <div class="chat-input">
-            <textarea
-              nz-input
-              rows="3"
-              [(ngModel)]="chatInput"
-              placeholder="就本周工作继续提问…"
-              (keydown.enter)="onChatEnter($event)"
-            ></textarea>
-            <button
-              nz-button
-              nzType="primary"
-              (click)="sendChat()"
-              [nzLoading]="chatting"
-              [disabled]="!chatInput.trim()"
-            >
-              发送
-            </button>
-          </div>
-        </nz-card>
-      </div>
-    }
-  `,
-  styles: [
-    `
-      .notice {
-        margin-top: 10px;
-      }
-      .muted {
-        color: #8c8c8c;
-      }
-      .split {
-        margin-top: 16px;
-        display: grid;
-        grid-template-columns: 1.1fr 0.9fr;
-        gap: 16px;
-        align-items: start;
-      }
-      .left,
-      .right {
-        min-width: 0;
-      }
-      .section {
-        margin-bottom: 16px;
-      }
-      .section-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        flex-wrap: wrap;
-        margin-bottom: 8px;
-      }
-      .section-title {
-        font-weight: 600;
-        font-size: 15px;
-        margin: 0;
-      }
-      .mode-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        flex-wrap: wrap;
-      }
-      .rich-box {
-        min-height: 180px;
-        max-height: 420px;
-        overflow: auto;
-        padding: 12px 14px;
-        border: 1px solid #d9d9d9;
-        border-radius: 8px;
-        background: #fff;
-        line-height: 1.6;
-        outline: none;
-      }
-      .rich-box:focus {
-        border-color: #1677ff;
-        box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.1);
-      }
-      .rich-box p {
-        margin: 0 0 8px;
-      }
-      .rich-box ol,
-      .rich-box ul {
-        margin: 0 0 12px;
-        padding-left: 22px;
-      }
-      .rich-box .muted-hint {
-        color: #8c8c8c;
-      }
-      .chat-hint {
-        margin-bottom: 10px;
-      }
-      .chat-quick {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-bottom: 12px;
-      }
-      .quick {
-        cursor: pointer;
-      }
-      .chat-list {
-        height: 420px;
-        overflow: auto;
-        padding: 12px;
-        background: #fafafa;
-        border: 1px solid #f0f0f0;
-        border-radius: 8px;
-        margin-bottom: 12px;
-      }
-      .empty-chat {
-        text-align: center;
-        padding: 40px 0;
-      }
-      .bubble {
-        margin-bottom: 12px;
-        max-width: 92%;
-      }
-      .bubble.user {
-        margin-left: auto;
-      }
-      .bubble .role {
-        font-size: 12px;
-        color: #8c8c8c;
-        margin-bottom: 4px;
-      }
-      .bubble .content {
-        padding: 10px 12px;
-        border-radius: 10px;
-        background: #fff;
-        border: 1px solid #f0f0f0;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-      }
-      .bubble .content.md {
-        background: #fff;
-      }
-      .bubble.user .content {
-        background: #e6f4ff;
-        border-color: #91caff;
-      }
-      .pre {
-        white-space: pre-wrap;
-      }
-      .chat-input {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 10px;
-        align-items: end;
-      }
-      @media (max-width: 1100px) {
-        .split {
-          grid-template-columns: 1fr;
-        }
-        .chat-list {
-          height: 320px;
-        }
-      }
-    `,
-  ],
+  templateUrl: './weekly-report.component.html',
+  styleUrl: './weekly-report.component.scss',
 })
 export class WeeklyReportComponent implements OnInit, AfterViewChecked {
+  /** 右侧对话列表容器，用于自动滚到底部 */
   @ViewChild('chatList') chatListRef?: ElementRef<HTMLDivElement>;
+  /** 本周完成工作富文本编辑区 */
   @ViewChild('completedBox') completedBox?: ElementRef<HTMLDivElement>;
+  /** 下周计划富文本编辑区 */
   @ViewChild('planBox') planBox?: ElementRef<HTMLDivElement>;
 
   private readonly http = inject(HttpClient);
   private readonly message = inject(NzMessageService);
-  private readonly auth = inject(AuthService);
+  private readonly sse = inject(SseClient);
+  /** 富文本同步令牌：变更后强制重新写入 contenteditable */
   private htmlSyncKey = '';
 
+  /** 当前工时导入记录 ID */
   importId: number | null = null;
+  /** 导入文件名 */
   importName = '';
+  /** 导入解析出的数据行数 */
   rowCount = 0;
+  /** 当前周报；未生成时为 null */
   report: Report | null = null;
+  /** 导入过程中的警告信息 */
   warnings: string[] = [];
+  /** 是否正在上传 Excel */
   uploading = false;
+  /** 是否正在生成周报 */
   generating = false;
+  /** 是否正在保存周报 */
   saving = false;
+  /** 是否正在对本周完成工作做 AI 润色 */
   optimizingCompleted = false;
+  /** 是否正在对下周计划做 AI 润色 */
   optimizingPlan = false;
+  /** 本周完成工作当前展示模式 */
   completedMode: ContentMode = 'original';
+  /** 下周计划当前展示模式 */
   planMode: ContentMode = 'original';
 
+  /** 右侧对话消息列表（本地 + 服务端同步） */
   chatMessages: ChatTurn[] = [];
+  /** 对话输入框内容 */
   chatInput = '';
+  /** 是否正在流式对话中 */
   chatting = false;
+  /** 右侧快捷提问预设 */
   readonly quickQuestions = [
     '帮我润色本周完成工作表述',
     '根据本周工作完善下周计划',
     '总结本周风险与需协调事项',
   ];
 
+  /** 初始化：拉取最近一次导入与周报 */
   ngOnInit(): void {
     this.loadLatest();
   }
 
+  /** 视图检测后同步富文本编辑区 HTML */
   ngAfterViewChecked(): void {
     this.syncRichBoxes();
   }
 
+  /** 按当前模式将 HTML 写入 contenteditable，避免重复同步 */
   private syncRichBoxes(): void {
     if (!this.report) return;
     const syncId = `${this.report.id}-${this.completedMode}-${this.planMode}-${this.htmlSyncKey}`;
@@ -423,6 +185,7 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
     this._lastSyncId = syncId;
   }
 
+  /** 按 completedMode 取本周完成工作 HTML */
   private getCompletedHtml(): string {
     if (!this.report) return '<p>无</p>';
     if (this.completedMode === 'ai') {
@@ -434,6 +197,7 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
     return this.report.content.completedWorkHtml || '<p>无</p>';
   }
 
+  /** 按 planMode 取下周计划 HTML */
   private getPlanHtml(): string {
     if (!this.report) return '<p>无</p>';
     if (this.planMode === 'ai') {
@@ -445,12 +209,18 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
     return this.report.content.nextWeekPlanHtml || '<p>无</p>';
   }
 
+  /** 上次富文本同步的标识，用于去重 */
   private _lastSyncId = '';
+  /** 标记富文本需要重新同步到 DOM */
   private markHtmlNeedsSync(): void {
     this.htmlSyncKey = String(Date.now());
     this._lastSyncId = '';
   }
 
+  /**
+   * 选择并上传工时 Excel。
+   * 成功后更新 importId / 文件名 / 行数 / 警告。
+   */
   onFileChange(event: Event): void {
     const file = (event.target as HTMLInputElement).files?.[0];
     if (!file) return;
@@ -475,6 +245,10 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
       });
   }
 
+  /**
+   * 基于当前导入记录生成周报（规则聚合原始版）。
+   * 成功后重置为原始视图并清空/同步对话历史。
+   */
   generate(): void {
     this.generating = true;
     this.http
@@ -493,6 +267,10 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
       });
   }
 
+  /**
+   * 保存当前周报内容到服务端。
+   * 保留本地对话列表，避免保存响应覆盖聊天状态。
+   */
   save(): void {
     if (!this.report) return;
     this.saving = true;
@@ -513,6 +291,9 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
       });
   }
 
+  /**
+   * 本周完成工作编辑区 input：按当前模式写回原始或 AI HTML。
+   */
   onCompletedInput(event: Event): void {
     if (!this.report) return;
     const html = (event.target as HTMLElement).innerHTML;
@@ -523,6 +304,9 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
     }
   }
 
+  /**
+   * 下周计划编辑区 input：按当前模式写回原始或 AI HTML。
+   */
   onPlanInput(event: Event): void {
     if (!this.report) return;
     const html = (event.target as HTMLElement).innerHTML;
@@ -533,6 +317,10 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
     }
   }
 
+  /**
+   * 切换本周完成工作的原始/AI 视图。
+   * 切到 AI 且尚无润色内容时自动触发润色。
+   */
   onCompletedModeChange(mode: ContentMode): void {
     this.completedMode = mode;
     this.markHtmlNeedsSync();
@@ -541,6 +329,10 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
     }
   }
 
+  /**
+   * 切换下周计划的原始/AI 视图。
+   * 切到 AI 且尚无润色内容时自动触发润色。
+   */
   onPlanModeChange(mode: ContentMode): void {
     this.planMode = mode;
     this.markHtmlNeedsSync();
@@ -549,6 +341,10 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
     }
   }
 
+  /**
+   * 对指定区块调用服务端 AI 润色，并切换到 AI 视图。
+   * @param section `completed` 本周完成工作；`plan` 下周计划
+   */
   optimizeSection(section: 'completed' | 'plan'): void {
     if (!this.report) return;
     if (section === 'completed') this.optimizingCompleted = true;
@@ -583,6 +379,10 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
       });
   }
 
+  /**
+   * 发送右侧对话消息，经 SSE 流式追加助手回复。
+   * 失败时回填输入框，并移除未完成的空助手消息。
+   */
   sendChat(): void {
     if (!this.report || !this.chatInput.trim() || this.chatting) return;
     const message = this.chatInput.trim();
@@ -597,50 +397,56 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
 
     const assistantIndex = this.chatMessages.length - 1;
     const reportId = this.report.id;
-    void postSse(
-      `${API_BASE}/worktime/reports/${reportId}/chat/stream`,
-      { message },
-      this.auth.token(),
-      (ev) => {
-        if (ev.type === 'delta' && ev.content) {
-          const cur = this.chatMessages[assistantIndex];
-          if (cur) {
-            this.chatMessages[assistantIndex] = {
-              ...cur,
-              content: cur.content + ev.content,
-            };
-            this.chatMessages = [...this.chatMessages];
-            this.scrollChat();
+    this.sse
+      .postSse(`${API_BASE}/worktime/reports/${reportId}/chat/stream`, { message })
+      .subscribe({
+        next: (ev) => {
+          if (ev.type === 'delta' && ev.content) {
+            const cur = this.chatMessages[assistantIndex];
+            if (cur) {
+              this.chatMessages[assistantIndex] = {
+                ...cur,
+                content: cur.content + ev.content,
+              };
+              this.chatMessages = [...this.chatMessages];
+              this.scrollChat();
+            }
           }
-        }
-        if (ev.type === 'done' && ev.chatMessages) {
-          this.chatMessages = ev.chatMessages as ChatTurn[];
-        }
-      },
-    )
-      .then(() => {
-        this.chatting = false;
-        this.scrollChat();
-      })
-      .catch((error: Error) => {
-        this.chatting = false;
-        this.chatInput = message;
-        if (
-          this.chatMessages.length >= 2 &&
-          this.chatMessages[this.chatMessages.length - 1]?.role === 'assistant' &&
-          !this.chatMessages[this.chatMessages.length - 1]?.content
-        ) {
-          this.chatMessages = this.chatMessages.slice(0, -2);
-        }
-        this.message.error(error.message || '对话失败');
+          if (ev.type === 'done' && ev.chatMessages) {
+            this.chatMessages = ev.chatMessages as ChatTurn[];
+          }
+        },
+        error: (error: Error) => {
+          this.chatting = false;
+          this.chatInput = message;
+          if (
+            this.chatMessages.length >= 2 &&
+            this.chatMessages[this.chatMessages.length - 1]?.role === 'assistant' &&
+            !this.chatMessages[this.chatMessages.length - 1]?.content
+          ) {
+            this.chatMessages = this.chatMessages.slice(0, -2);
+          }
+          this.message.error(error.message || '对话失败');
+        },
+        complete: () => {
+          this.chatting = false;
+          this.scrollChat();
+        },
       });
   }
 
+  /**
+   * 点击快捷提问：填入输入框并立即发送。
+   * @param q 预设问题文案
+   */
   askQuick(q: string): void {
     this.chatInput = q;
     this.sendChat();
   }
 
+  /**
+   * 对话输入框回车发送；Shift+Enter 换行不发送。
+   */
   onChatEnter(event: Event): void {
     const e = event as KeyboardEvent;
     if (e.shiftKey) return;
@@ -648,6 +454,7 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
     this.sendChat();
   }
 
+  /** 清空当前周报的服务端对话历史，并重置本地列表 */
   clearChat(): void {
     if (!this.report) return;
     this.http
@@ -665,16 +472,23 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
       });
   }
 
+  /** 将当前两栏内容导出为纯文本 Markdown 并复制到剪贴板 */
   copyMarkdown(): void {
     void navigator.clipboard
       .writeText(this.toMarkdown())
       .then(() => this.message.success('Markdown 已复制'));
   }
 
+  /** 将当前两栏内容以富文本（HTML + 纯文本）复制到剪贴板 */
   copyHtml(): void {
     this.copyAs(this.toCopyHtml(), this.toMarkdown(), '带格式内容已复制');
   }
 
+  /**
+   * 按区块与格式导出当前视图内容到剪贴板。
+   * @param section 区块：`completed` / `plan`
+   * @param format `md` 纯文本；`html` 富文本
+   */
   exportSection(section: 'completed' | 'plan', format: 'md' | 'html'): void {
     if (!this.report) return;
     const label = section === 'completed' ? '本周完成工作' : '下周工作计划';
@@ -702,6 +516,7 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
     this.copyAs(html || '', text || '', `已导出：${label}（${modeLabel} 富文本）`);
   }
 
+  /** 优先以 ClipboardItem 写 HTML+纯文本，不支持时退化为纯文本 */
   private copyAs(html: string, plain: string, successMsg: string): void {
     if ('ClipboardItem' in window) {
       void navigator.clipboard
@@ -717,6 +532,7 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
     }
   }
 
+  /** 拉取最近一次导入与周报，用于页面回填 */
   private loadLatest(): void {
     this.http.get<LatestResponse>(`${API_BASE}/worktime/latest`).subscribe({
       next: (data) => {
@@ -730,6 +546,7 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
     });
   }
 
+  /** 规范化周报 HTML 字段，补齐缺省占位 */
   private normalizeReport(report: Report): Report {
     const c = report.content || ({} as ReportContent);
     return {
@@ -744,6 +561,7 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
     };
   }
 
+  /** 将当前两栏 HTML 转为纯文本 Markdown 拼接 */
   private toMarkdown(): string {
     if (!this.report) return '';
     return [
@@ -753,11 +571,13 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
     ].join('\n');
   }
 
+  /** 拼接当前两栏 HTML，供富文本复制 */
   private toCopyHtml(): string {
     if (!this.report) return '';
     return `${this.getCompletedHtml()}${this.getPlanHtml()}`;
   }
 
+  /** 简易 HTML → 纯文本（段落/列表/换行与常见实体） */
   private htmlToText(html: string): string {
     return String(html || '')
       .replace(/<\/p>/gi, '\n')
@@ -772,6 +592,7 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
       .trim();
   }
 
+  /** 将对话列表滚动到底部 */
   private scrollChat(): void {
     setTimeout(() => {
       const el = this.chatListRef?.nativeElement;
@@ -779,6 +600,12 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
     }, 0);
   }
 
+  /**
+   * 统一处理上传/生成/保存失败：复位 loading 标志并提示错误。
+   * @param error HTTP 错误对象
+   * @param fallback 无服务端 message 时的兜底文案
+   * @param flag 需复位的 loading 字段名
+   */
   private fail(
     error: { error?: { message?: string } },
     fallback: string,

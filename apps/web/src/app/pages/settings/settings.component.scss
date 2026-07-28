@@ -1,0 +1,72 @@
+
+      .settings-card {
+        max-width: 760px;
+      }
+      .notice {
+        margin-bottom: 20px;
+      }
+      .usage-panel {
+        margin-bottom: 20px;
+        padding: 14px 16px;
+        background: #f6ffed;
+        border: 1px solid #b7eb8f;
+        border-radius: 8px;
+      }
+      .usage-head {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .usage-title {
+        font-weight: 600;
+        color: #389e0d;
+      }
+      .usage-sub {
+        margin-top: 4px;
+        font-size: 12px;
+      }
+      .usage-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 10px;
+      }
+      .usage-item {
+        background: #fff;
+        border: 1px solid #d9f7be;
+        border-radius: 8px;
+        padding: 10px 12px;
+      }
+      .usage-item .num {
+        font-size: 18px;
+        font-weight: 650;
+        color: #237804;
+        font-variant-numeric: tabular-nums;
+      }
+      .usage-item .label {
+        margin-top: 2px;
+        font-size: 12px;
+        color: #8c8c8c;
+      }
+      .usage-last {
+        margin-top: 10px;
+        font-size: 12px;
+      }
+      .muted {
+        color: #8c8c8c;
+      }
+      button + button {
+        margin-left: 8px;
+      }
+      small {
+        display: block;
+        margin-top: 6px;
+        color: #8c8c8c;
+      }
+      @media (max-width: 720px) {
+        .usage-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+    

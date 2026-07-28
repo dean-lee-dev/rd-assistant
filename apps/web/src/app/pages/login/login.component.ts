@@ -9,42 +9,32 @@ import { NzIconModule } from 'ng-zorro-antd/icon';
 import { NzInputModule } from 'ng-zorro-antd/input';
 import { AuthService } from '../../core/auth/auth.service';
 
+/**
+ * 登录页：单用户账号密码登录，成功后进入工时周报。
+ */
 @Component({
   selector: 'app-login',
-  standalone: true,
   imports: [FormsModule, NzAlertModule, NzButtonModule, NzCardModule, NzFormModule, NzIconModule, NzInputModule],
-  template: `
-    <main class="login-page">
-      <nz-card class="login-card" nzTitle="个人研发效能助手">
-        <nz-alert nzType="info" nzShowIcon nzMessage="默认账号：admin / admin123" class="hint"></nz-alert>
-        <form nz-form (ngSubmit)="submit()">
-          <nz-form-item><nz-form-control>
-            <nz-input-group nzPrefixIcon="user"><input nz-input name="username" [(ngModel)]="username" placeholder="用户名" required /></nz-input-group>
-          </nz-form-control></nz-form-item>
-          <nz-form-item><nz-form-control>
-            <nz-input-group nzPrefixIcon="lock"><input nz-input name="password" [(ngModel)]="password" type="password" placeholder="密码" required /></nz-input-group>
-          </nz-form-control></nz-form-item>
-          @if (error) { <nz-alert nzType="error" [nzMessage]="error" class="hint"></nz-alert> }
-          <button nz-button nzType="primary" class="login-button" [nzLoading]="loading" [disabled]="!username || !password">登录</button>
-        </form>
-      </nz-card>
-    </main>
-  `,
-  styles: [`
-    .login-page { min-height: 100vh; display: grid; place-items: center; background: linear-gradient(135deg, #e6f4ff, #f6ffed); }
-    .login-card { width: 380px; }
-    .hint { margin-bottom: 20px; }
-    .login-button { width: 100%; }
-  `],
+  templateUrl: './login.component.html',
+  styleUrl: './login.component.scss',
 })
 export class LoginComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
+
+  /** 用户名（默认预填管理员）。 */
   username = 'admin';
+
+  /** 密码（默认预填初始密码，便于本地开发）。 */
   password = 'admin123';
+
+  /** 登录请求进行中。 */
   loading = false;
+
+  /** 登录失败提示文案。 */
   error = '';
 
+  /** 提交登录表单。 */
   submit(): void {
     this.loading = true;
     this.error = '';

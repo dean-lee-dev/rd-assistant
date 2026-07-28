@@ -30,9 +30,8 @@ import { NzTableModule } from 'ng-zorro-antd/table';
 import { NzTabsModule } from 'ng-zorro-antd/tabs';
 import { NzTagModule } from 'ng-zorro-antd/tag';
 import { API_BASE, UPLOADS_BASE } from '../../core/api/api-base';
-import { AuthService } from '../../core/auth/auth.service';
 import { MdViewComponent } from '../../shared/md-view.component';
-import { postSse } from '../../shared/sse-client';
+import { SseClient } from '../../shared/sse-client.service';
 
 echarts.use([
   BarChart,
@@ -43,36 +42,68 @@ echarts.use([
   CanvasRenderer,
 ]);
 
+/** 配置洞察页主 Tab：参数表格 / 汇总图表 / AI 分析 */
 type TabKey = 'table' | 'summary' | 'ai';
+
+/** AI 分析范围：全量参数或仅选中行 */
 type AnalyzeScope = 'all' | 'selected';
 
+/** 参数列表行（表格摘要字段） */
 interface ParamItem {
+  /** 参数主键 */
   id: number;
+  /** Excel 物理行号 */
   excelRowNo: number;
+  /** 配置名称 */
   configName: string | null;
+  /** 配置 Key */
   configKey: string | null;
+  /** 所属模块 */
   module: string | null;
+  /** 后端服务 */
   backendService: string | null;
+  /** 是否含内嵌图片 */
   hasImage: boolean;
 }
+
+/** 按模块聚合的统计项（汇总图表用） */
 interface ModuleStat {
+  /** 模块名 */
   module: string;
+  /** 该模块下参数条数 */
   count: number;
 }
+
+/** 参数详情（列表字段 + 备注/原始列/图片） */
 interface Detail extends ParamItem {
+  /** 备注说明 */
   comment: string | null;
+  /** Excel 原始列键值 */
   raw: Record<string, unknown>;
+  /** 内嵌图访问路径列表 */
   imageUrls: string[];
 }
+
+/** 右侧 AI 对话单轮消息 */
 interface ChatTurn {
+  /** 发言角色 */
   role: 'user' | 'assistant';
+  /** Markdown 文本内容 */
   content: string;
+  /** 可选时间戳 */
   at?: string;
 }
 
+/**
+ * 配置洞察页 — 参数表格/汇总图表/AI 分析（全量或选中）+ 右侧流式对话。
+ *
+ * 能力概览：
+ * - 表格 Tab：导入 Excel、按关键词/模块过滤、查看详情
+ * - 汇总 Tab：模块柱状图与饼图，点击可跳转模块过滤
+ * - AI Tab：全量或勾选行 SSE 流式分析，右侧快捷问与自由对话
+ */
 @Component({
   selector: 'app-sys-params',
-  standalone: true,
   imports: [
     CommonModule,
     FormsModule,
@@ -88,757 +119,114 @@ interface ChatTurn {
     NzTagModule,
     MdViewComponent,
   ],
-  template: `
-    <nz-card nzTitle="配置洞察" [nzExtra]="actions">
-      <ng-template #actions>
-        <input #fileInput type="file" accept=".xlsx,.xls" hidden (change)="onFileChange($event)" />
-        <button nz-button (click)="fileInput.click()" [nzLoading]="uploading">上传 Excel（全量覆盖）</button>
-      </ng-template>
-
-      <nz-tabset [(nzSelectedIndex)]="tabIndex" (nzSelectedIndexChange)="onTabIndexChange($event)">
-        <nz-tab nzTitle="表格模式">
-          <div class="filters">
-            <input
-              nz-input
-              [(ngModel)]="query"
-              (ngModelChange)="loadTable()"
-              placeholder="搜索名称、Key、备注或任意字段"
-            />
-            <nz-select
-              [(ngModel)]="module"
-              (ngModelChange)="loadTable()"
-              nzAllowClear
-              nzPlaceHolder="全部模块"
-            >
-              @for (item of modules; track item.module) {
-                <nz-option
-                  [nzValue]="item.module"
-                  [nzLabel]="item.module + '（' + item.count + '）'"
-                ></nz-option>
-              }
-            </nz-select>
-          </div>
-          @if (module) {
-            <div class="filter-tip">
-              当前模块：<strong>{{ module }}</strong>
-              <a (click)="clearModuleFilter()">清除筛选</a>
-            </div>
-          }
-          <nz-table
-            #table
-            [nzData]="items"
-            [nzLoading]="loading"
-            [nzFrontPagination]="true"
-            [nzShowPagination]="true"
-            [nzShowSizeChanger]="true"
-            [nzPageSizeOptions]="[10, 20, 50, 100]"
-            [nzPageSize]="pageSize"
-            [nzTotal]="items.length"
-            nzPaginationPosition="bottom"
-          >
-            <thead>
-              <tr>
-                <th>Excel 行号</th>
-                <th>配置名称</th>
-                <th>配置 Key</th>
-                <th>模块</th>
-                <th>后端服务</th>
-                <th>图片</th>
-                <th nzWidth="88px">详情</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (item of table.data; track item.id) {
-                <tr>
-                  <td>{{ item.excelRowNo }}</td>
-                  <td>{{ item.configName || '-' }}</td>
-                  <td>{{ item.configKey || '-' }}</td>
-                  <td>{{ item.module || '-' }}</td>
-                  <td>{{ item.backendService || '-' }}</td>
-                  <td>{{ item.hasImage ? '是' : '否' }}</td>
-                  <td>
-                    <a (click)="openDetail(item.id); $event.preventDefault()">详情</a>
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </nz-table>
-        </nz-tab>
-
-        <nz-tab nzTitle="汇总模式">
-          <div class="summary">
-            <div class="summary-head">
-              <h3>模块分布汇总</h3>
-              <span class="muted">共 {{ totalCount }} 条 · 点击柱状图/饼图可打开对应模块表格</span>
-            </div>
-            @if (modules.length) {
-              <div class="charts">
-                <div class="chart-panel">
-                  <div class="chart-title">柱状图</div>
-                  <div #barChart class="chart" [style.height.px]="barHeight"></div>
-                </div>
-                <div class="chart-panel">
-                  <div class="chart-title">饼图（Top {{ pieTopN }} + 其他）</div>
-                  <div #pieChart class="chart pie"></div>
-                </div>
-              </div>
-            } @else {
-              <nz-empty nzNotFoundContent="暂无数据，请先上传 Excel"></nz-empty>
-            }
-          </div>
-        </nz-tab>
-
-        <nz-tab nzTitle="AI 分析">
-          <div class="ai-pane">
-            <div class="ai-toolbar">
-              <nz-radio-group
-                [(ngModel)]="analyzeScope"
-                (ngModelChange)="onAnalyzeScopeChange($event)"
-                nzButtonStyle="solid"
-                nzSize="small"
-              >
-                <label nz-radio-button nzValue="all">分析全部</label>
-                <label nz-radio-button nzValue="selected">分析选中</label>
-              </nz-radio-group>
-
-              @if (analyzeScope === 'selected') {
-                <button nz-button nzSize="small" (click)="openPickModal()">选择参数</button>
-                <span class="selected-count">已选 <strong>{{ selectedCount }}</strong> 条</span>
-                @if (selectedCount) {
-                  <a class="clear-link" (click)="clearSelection()">清空</a>
-                }
-              }
-
-              <button
-                nz-button
-                nzType="primary"
-                (click)="analyze()"
-                [nzLoading]="analyzing"
-                [disabled]="analyzeScope === 'selected' && !selectedCount"
-              >
-                {{ analyzeScope === 'all' ? '开始整体分析' : '分析选中（' + selectedCount + '）' }}
-              </button>
-              <span class="muted toolbar-hint">
-                {{
-                  analyzeScope === 'all'
-                    ? '基于全部参数，逐行含完整原始字段'
-                    : '在弹框中勾选参数后分析，每行含完整原始字段'
-                }}
-              </span>
-            </div>
-
-            <div class="split">
-              <nz-card class="left panel-card" nzTitle="分析结果">
-                <div class="panel-body">
-                  @if (analysis || analyzing) {
-                    <div class="scope-tip muted">
-                      @if (analyzing) {
-                        正在生成分析…
-                      } @else if (lastScope === 'selected') {
-                        基于选中 {{ lastSelectedCount }} 条参数
-                      } @else {
-                        基于全部参数
-                      }
-                    </div>
-                    <div class="analysis-box">
-                      <app-md-view [content]="analysis" [streaming]="analyzing"></app-md-view>
-                    </div>
-                  } @else {
-                    <nz-empty nzNotFoundContent="尚未生成分析，选择范围后点击上方按钮开始"></nz-empty>
-                  }
-                </div>
-              </nz-card>
-
-              <nz-card class="right panel-card" nzTitle="ai小助手对话" [nzExtra]="chatExtra">
-                <ng-template #chatExtra>
-                  <button nz-button nzSize="small" (click)="clearChat()" [disabled]="!chatMessages.length">
-                    清空对话
-                  </button>
-                </ng-template>
-                <div class="chat-panel">
-                  <p class="muted chat-hint">可基于左侧分析结果继续追问、对比或讨论配置风险。</p>
-                  <div class="chat-quick">
-                    @for (q of quickQuestions; track q) {
-                      <nz-tag class="quick" (click)="askQuick(q)">{{ q }}</nz-tag>
-                    }
-                  </div>
-                  <div class="chat-list" #chatList>
-                    @if (!chatMessages.length && !chatting) {
-                      <div class="muted empty-chat">暂无对话，在下方输入后开始沟通。</div>
-                    }
-                    @for (msg of chatMessages; track $index) {
-                      <div
-                        class="bubble"
-                        [class.user]="msg.role === 'user'"
-                        [class.assistant]="msg.role === 'assistant'"
-                      >
-                        <div class="role">{{ msg.role === 'user' ? '我' : 'ai小助手' }}</div>
-                        @if (msg.role === 'assistant') {
-                          <div class="content md">
-                            <app-md-view
-                              [content]="msg.content"
-                              [streaming]="chatting && $index === chatMessages.length - 1"
-                            ></app-md-view>
-                          </div>
-                        } @else {
-                          <div class="content pre">{{ msg.content }}</div>
-                        }
-                      </div>
-                    }
-                  </div>
-                  <div class="chat-input">
-                    <textarea
-                      nz-input
-                      rows="2"
-                      [(ngModel)]="chatInput"
-                      placeholder="就配置参数继续提问…"
-                      (keydown.enter)="onChatEnter($event)"
-                    ></textarea>
-                    <button
-                      nz-button
-                      nzType="primary"
-                      (click)="sendChat()"
-                      [nzLoading]="chatting"
-                      [disabled]="!chatInput.trim()"
-                    >
-                      发送
-                    </button>
-                  </div>
-                </div>
-              </nz-card>
-            </div>
-          </div>
-        </nz-tab>
-      </nz-tabset>
-    </nz-card>
-
-    <nz-modal
-      [(nzVisible)]="pickModalVisible"
-      nzTitle="选择要分析的参数"
-      [nzWidth]="650"
-      nzCentered
-      nzWrapClassName="sys-pick-modal-wrap"
-      [nzStyle]="{ width: '650px', maxWidth: '650px' }"
-      [nzBodyStyle]="pickModalBodyStyle"
-      (nzOnCancel)="closePickModal()"
-      (nzOnOk)="confirmPickModal()"
-      [nzOkText]="'确定（' + draftSelectedCount + '）'"
-    >
-      <ng-container *nzModalContent>
-        <div class="pick-modal-body">
-          <div class="select-actions">
-            <input
-              nz-input
-              [(ngModel)]="aiQuery"
-              placeholder="筛选待选参数（名称 / Key / 模块）"
-              class="ai-filter"
-            />
-            <button nz-button nzSize="small" (click)="selectAllFilteredDraft()">全选当前筛选</button>
-            <button
-              nz-button
-              nzSize="small"
-              (click)="clearDraftSelection()"
-              [disabled]="!draftSelectedCount"
-            >
-              清空已选
-            </button>
-            <span class="muted">已选 {{ draftSelectedCount }} 条</span>
-          </div>
-          <div class="pick-table-wrap">
-            <nz-table
-              #pickTable
-              [nzData]="filteredPickItems"
-              [nzFrontPagination]="true"
-              [nzShowPagination]="true"
-              [(nzPageSize)]="pickPageSize"
-              [nzPageSizeOptions]="pickPageSizeOptions"
-              [nzShowSizeChanger]="true"
-              [nzScroll]="pickTableScroll"
-              nzSize="small"
-              nzTableLayout="fixed"
-              nzPaginationPosition="bottom"
-              (nzPageSizeChange)="onPickPageSizeChange($event)"
-            >
-              <thead>
-                <tr>
-                  <th nzWidth="40px"></th>
-                  <th nzWidth="56px">行号</th>
-                  <th nzWidth="120px">配置名称</th>
-                  <th nzWidth="140px">配置 Key</th>
-                  <th>模块</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (item of pickTable.data; track item.id) {
-                  <tr (click)="toggleDraftSelect(item.id)" class="pick-row">
-                    <td (click)="$event.stopPropagation()">
-                      <label class="check">
-                        <input
-                          type="checkbox"
-                          [checked]="isDraftSelected(item.id)"
-                          (change)="onDraftCheckChange(item.id, $event)"
-                        />
-                      </label>
-                    </td>
-                    <td>{{ item.excelRowNo }}</td>
-                    <td class="ellipsis" [title]="item.configName || ''">{{ item.configName || '-' }}</td>
-                    <td class="ellipsis" [title]="displayCell(item.configKey)">{{ displayCell(item.configKey) }}</td>
-                    <td class="ellipsis" [title]="item.module || ''">{{ item.module || '-' }}</td>
-                  </tr>
-                }
-              </tbody>
-            </nz-table>
-          </div>
-        </div>
-      </ng-container>
-    </nz-modal>
-
-    <nz-modal
-      [(nzVisible)]="modalVisible"
-      nzTitle="参数详情"
-      [nzWidth]="900"
-      nzCentered
-      nzWrapClassName="sys-detail-modal-wrap"
-      [nzFooter]="null"
-      [nzBodyStyle]="detailModalBodyStyle"
-      (nzOnCancel)="closeDetail()"
-    >
-      <ng-container *nzModalContent>
-        <div class="detail-body">
-          @if (detailLoading) {
-            <p class="muted">加载中...</p>
-          } @else if (detail) {
-            <div class="detail-meta">
-              <p><strong>Excel 行号：</strong>{{ displayCell(detail.excelRowNo) }}</p>
-              <p><strong>配置名称：</strong>{{ displayCell(detail.configName) }}</p>
-              <p><strong>配置 Key：</strong>{{ displayCell(detail.configKey) }}</p>
-              <p><strong>模块：</strong>{{ displayCell(detail.module) }}</p>
-              <p><strong>后端服务：</strong>{{ displayCell(detail.backendService) }}</p>
-              <p><strong>注释：</strong>{{ displayCell(detail.comment) }}</p>
-            </div>
-            <h4>原始字段</h4>
-            <nz-table [nzData]="rawEntries" [nzShowPagination]="false" nzSize="small">
-              <thead>
-                <tr>
-                  <th nzWidth="180px">字段</th>
-                  <th>值</th>
-                </tr>
-              </thead>
-              <tbody>
-                @for (entry of rawEntries; track entry.key) {
-                  <tr>
-                    <td>{{ entry.key }}</td>
-                    <td class="wrap" [class.abnormal]="entry.abnormal">{{ entry.value }}</td>
-                  </tr>
-                }
-              </tbody>
-            </nz-table>
-            @if (imageUrls.length) {
-              <h4>关联图片</h4>
-              <div class="images">
-                @for (url of imageUrls; track url) {
-                  <div class="image-item">
-                    <img [src]="uploadsBase + url" alt="参数截图" (error)="onImageError($event)" />
-                  </div>
-                }
-              </div>
-            }
-          } @else {
-            <p class="muted">暂无详情数据</p>
-          }
-        </div>
-      </ng-container>
-    </nz-modal>
-  `,
-  styles: [
-    `
-      .filters {
-        display: grid;
-        grid-template-columns: 1fr 260px;
-        gap: 12px;
-        margin-bottom: 12px;
-      }
-      .filter-tip {
-        margin-bottom: 12px;
-        color: #595959;
-        font-size: 13px;
-      }
-      .filter-tip a {
-        margin-left: 12px;
-        cursor: pointer;
-      }
-      .summary {
-        padding: 8px 0 4px;
-      }
-      .summary-head {
-        display: flex;
-        align-items: baseline;
-        justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 12px;
-      }
-      .summary-head h3 {
-        margin: 0;
-        font-size: 15px;
-      }
-      .muted {
-        color: #8c8c8c;
-        font-size: 13px;
-      }
-      .charts {
-        display: grid;
-        grid-template-columns: 1.2fr 1fr;
-        gap: 16px;
-      }
-      .chart-panel {
-        min-width: 0;
-        background: #fafafa;
-        border: 1px solid #f0f0f0;
-        border-radius: 8px;
-        padding: 8px 4px 4px;
-      }
-      .chart-title {
-        padding: 0 12px 4px;
-        font-size: 13px;
-        color: #595959;
-      }
-      .chart {
-        width: 100%;
-        min-height: 280px;
-      }
-      .chart.pie {
-        height: 420px;
-      }
-      .detail-meta p {
-        margin: 0 0 8px;
-      }
-      .wrap {
-        word-break: break-all;
-      }
-      .abnormal {
-        color: #cf1322;
-      }
-      .image-item {
-        min-height: 40px;
-      }
-      .ai-pane {
-        display: flex;
-        flex-direction: column;
-        height: calc(100vh - 220px);
-        min-height: 420px;
-        overflow: hidden;
-      }
-      .ai-toolbar {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 12px;
-        margin-bottom: 12px;
-        flex-shrink: 0;
-      }
-      .toolbar-hint {
-        flex: 1;
-        min-width: 160px;
-      }
-      .selected-count {
-        font-size: 13px;
-        color: #595959;
-      }
-      .clear-link {
-        font-size: 13px;
-        cursor: pointer;
-      }
-      .select-actions {
-        display: flex;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-bottom: 12px;
-        flex-shrink: 0;
-      }
-      .pick-modal-body {
-        display: flex;
-        flex-direction: column;
-        height: 100%;
-        width: 100%;
-        max-width: 100%;
-        overflow: hidden;
-      }
-      .pick-table-wrap {
-        flex: 1;
-        min-height: 0;
-        max-width: 100%;
-        overflow: hidden;
-        display: flex;
-        flex-direction: column;
-      }
-      .pick-table-wrap ::ng-deep .ant-spin-nested-loading,
-      .pick-table-wrap ::ng-deep .ant-spin-container,
-      .pick-table-wrap ::ng-deep .ant-table-wrapper {
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-      }
-      .pick-table-wrap ::ng-deep .ant-table-pagination {
-        margin: 8px 0 0 !important;
-        flex-shrink: 0;
-      }
-      .pick-table-wrap ::ng-deep .ant-table-placeholder {
-        height: 260px;
-      }
-      .pick-table-wrap ::ng-deep .ant-empty {
-        margin-top: 60px;
-      }
-      .pick-table-wrap ::ng-deep .ant-table {
-        table-layout: fixed;
-      }
-      .ellipsis {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-        max-width: 0;
-      }
-      .ai-filter {
-        max-width: 220px;
-        flex: 1;
-      }
-      .pick-row {
-        cursor: pointer;
-      }
-      .check {
-        cursor: pointer;
-      }
-      .split {
-        flex: 1;
-        min-height: 0;
-        display: grid;
-        grid-template-columns: 1.1fr 0.9fr;
-        gap: 16px;
-        align-items: stretch;
-        overflow: hidden;
-      }
-      .left,
-      .right {
-        min-width: 0;
-        min-height: 0;
-        height: 100%;
-      }
-      .panel-card {
-        height: 100%;
-        display: flex;
-        flex-direction: column;
-      }
-      :host ::ng-deep .panel-card > .ant-card-body {
-        flex: 1;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-        padding-top: 12px;
-      }
-      .panel-body {
-        flex: 1;
-        min-height: 0;
-        overflow: auto;
-      }
-      .scope-tip {
-        margin-bottom: 8px;
-      }
-      .analysis-box {
-        background: #fafafa;
-        border: 1px solid #f0f0f0;
-        border-radius: 8px;
-        padding: 14px 16px;
-        min-height: 80px;
-      }
-      .analysis-pre {
-        white-space: pre-wrap;
-        font-family: inherit;
-        background: #fafafa;
-        border: 1px solid #f0f0f0;
-        border-radius: 8px;
-        padding: 16px;
-        margin: 0;
-      }
-      .chat-panel {
-        flex: 1;
-        min-height: 0;
-        display: flex;
-        flex-direction: column;
-        overflow: hidden;
-      }
-      .chat-hint {
-        margin-bottom: 8px;
-        flex-shrink: 0;
-      }
-      .chat-quick {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-        margin-bottom: 10px;
-        flex-shrink: 0;
-      }
-      .quick {
-        cursor: pointer;
-      }
-      .chat-list {
-        flex: 1;
-        min-height: 0;
-        overflow: auto;
-        padding: 12px;
-        background: #fafafa;
-        border: 1px solid #f0f0f0;
-        border-radius: 8px;
-        margin-bottom: 10px;
-      }
-      .empty-chat {
-        text-align: center;
-        padding: 40px 0;
-      }
-      .bubble {
-        margin-bottom: 12px;
-        max-width: 92%;
-      }
-      .bubble.user {
-        margin-left: auto;
-      }
-      .bubble .role {
-        font-size: 12px;
-        color: #8c8c8c;
-        margin-bottom: 4px;
-      }
-      .bubble .content {
-        padding: 10px 12px;
-        border-radius: 10px;
-        background: #fff;
-        border: 1px solid #f0f0f0;
-        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
-      }
-      .bubble .content.md {
-        background: #fff;
-      }
-      .bubble.user .content {
-        background: #e6f4ff;
-        border-color: #91caff;
-      }
-      .pre {
-        white-space: pre-wrap;
-      }
-      .chat-input {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 10px;
-        align-items: end;
-        flex-shrink: 0;
-      }
-      .images {
-        display: grid;
-        gap: 12px;
-      }
-      .images img {
-        display: block;
-        max-width: 100%;
-        max-height: 480px;
-        object-fit: contain;
-        border: 1px solid #eee;
-        background: #fafafa;
-      }
-      @media (max-width: 1100px) {
-        .charts {
-          grid-template-columns: 1fr;
-        }
-        .ai-pane {
-          height: auto;
-          min-height: 0;
-          overflow: visible;
-        }
-        .split {
-          grid-template-columns: 1fr;
-          overflow: visible;
-        }
-        .panel-card,
-        .left,
-        .right {
-          height: auto;
-        }
-        :host ::ng-deep .panel-card > .ant-card-body {
-          overflow: visible;
-        }
-        .panel-body {
-          max-height: 420px;
-        }
-        .chat-list {
-          height: 280px;
-          flex: none;
-        }
-      }
-    `,
-  ],
+  templateUrl: './sys-params.component.html',
+  styleUrl: './sys-params.component.scss',
 })
 export class SysParamsComponent implements OnDestroy {
+  /** 汇总柱状图容器 */
   @ViewChild('barChart') barChartRef?: ElementRef<HTMLDivElement>;
+  /** 汇总饼图容器 */
   @ViewChild('pieChart') pieChartRef?: ElementRef<HTMLDivElement>;
+  /** 右侧对话列表容器（用于自动滚到底） */
   @ViewChild('chatList') chatListRef?: ElementRef<HTMLDivElement>;
 
   private readonly http = inject(HttpClient);
   private readonly message = inject(NzMessageService);
   private readonly cdr = inject(ChangeDetectorRef);
-  private readonly auth = inject(AuthService);
+  private readonly sse = inject(SseClient);
+  /** 柱状图 ECharts 实例 */
   private barChart?: ECharts;
+  /** 饼图 ECharts 实例 */
   private pieChart?: ECharts;
+  /** 是否需要在下一帧滚动对话列表 */
   private needScrollChat = false;
+  /** 窗口 resize 时同步图表尺寸 */
   private resizeHandler = () => {
     this.barChart?.resize();
     this.pieChart?.resize();
   };
 
+  /** 上传文件/图片的静态资源前缀 */
   readonly uploadsBase = UPLOADS_BASE;
+  /** 饼图展示 Top N，其余归入「其他」 */
   readonly pieTopN = 8;
+  /** Tab 顺序，与 tabIndex 对应 */
   readonly tabKeys: TabKey[] = ['table', 'summary', 'ai'];
+  /** AI 对话区快捷提问文案 */
   readonly quickQuestions = [
     '这份分析里最值得优先处理的风险是什么？',
     '有哪些空 Key / 重复 Key 需要清理？',
     '按模块给我一份治理建议清单',
   ];
+  /** 详情弹窗 body 样式（限高可滚动） */
   readonly detailModalBodyStyle: Record<string, string> = {
     maxHeight: 'calc(100vh - 160px)',
     overflowY: 'auto',
     paddingTop: '12px',
   };
+  /** 选参弹窗 body 样式（随分页高度同步） */
   pickModalBodyStyle: Record<string, string> = {
     height: '430px',
     paddingTop: '8px',
     overflow: 'hidden',
   };
+  /** 选参表格纵向滚动配置 */
   pickTableScroll: { y: string } = { y: '280px' };
+  /** 选参表格可选每页条数 */
   readonly pickPageSizeOptions = [10, 20, 50, 100];
+  /** 选参表格当前每页条数 */
   pickPageSize = 10;
 
+  /** 当前主 Tab 下标 */
   tabIndex = 0;
+  /** 主参数表格每页条数 */
   pageSize = 20;
+  /** 当前过滤后的参数列表 */
   items: ParamItem[] = [];
+  /** 模块统计（过滤后） */
   modules: ModuleStat[] = [];
+  /** 表格关键词搜索 */
   query = '';
+  /** 当前模块过滤（null 表示不过滤） */
   module: string | null = null;
+  /** 列表加载中 */
   loading = false;
+  /** Excel 导入中 */
   uploading = false;
+  /** AI 分析流式进行中 */
   analyzing = false;
+  /** 详情弹窗是否可见 */
   modalVisible = false;
+  /** 选参弹窗是否可见 */
   pickModalVisible = false;
+  /** 详情加载中 */
   detailLoading = false;
+  /** 当前详情数据 */
   detail: Detail | null = null;
 
+  /** 当前选择的分析范围 */
   analyzeScope: AnalyzeScope = 'all';
+  /** 选参弹窗内的搜索关键词 */
   aiQuery = '';
+  /** 已确认选中的参数 id */
   selectedIds = new Set<number>();
+  /** 已确认选中数量（模板绑定用） */
   selectedCount = 0;
+  /** 选参弹窗内草稿选中 id */
   draftSelectedIds = new Set<number>();
+  /** 草稿选中数量（模板绑定用） */
   draftSelectedCount = 0;
+  /** 最近一次 AI 分析 Markdown 结果 */
   analysis = '';
+  /** 最近一次分析实际使用的范围 */
   lastScope: AnalyzeScope = 'all';
+  /** 最近一次选中分析时的条数 */
   lastSelectedCount = 0;
+  /** 右侧对话历史 */
   chatMessages: ChatTurn[] = [];
+  /** 对话输入框内容 */
   chatInput = '';
+  /** 对话流式进行中 */
   chatting = false;
 
   constructor() {
@@ -847,14 +235,17 @@ export class SysParamsComponent implements OnDestroy {
     this.loadAiState();
   }
 
+  /** 各模块参数条数合计 */
   get totalCount(): number {
     return this.modules.reduce((sum, m) => sum + m.count, 0);
   }
 
+  /** 柱状图容器高度（随模块数伸缩） */
   get barHeight(): number {
     return Math.max(320, this.modules.length * 28 + 60);
   }
 
+  /** 选参弹窗内按 aiQuery 过滤后的列表 */
   get filteredPickItems(): ParamItem[] {
     const s = this.aiQuery.trim().toLowerCase();
     if (!s) return this.items;
@@ -868,6 +259,7 @@ export class SysParamsComponent implements OnDestroy {
     });
   }
 
+  /** 详情 raw 字段展平为可展示条目（跳过空值） */
   get rawEntries(): { key: string; value: string; abnormal: boolean }[] {
     try {
       const raw = this.detail?.raw;
@@ -891,6 +283,7 @@ export class SysParamsComponent implements OnDestroy {
     }
   }
 
+  /** 详情图片 URL 列表（容错过滤非法项） */
   get imageUrls(): string[] {
     try {
       const urls = this.detail?.imageUrls;
@@ -900,11 +293,16 @@ export class SysParamsComponent implements OnDestroy {
     }
   }
 
+  /** 卸载时移除 resize 监听并销毁图表 */
   ngOnDestroy(): void {
     window.removeEventListener('resize', this.resizeHandler);
     this.disposeCharts();
   }
 
+  /**
+   * Tab 切换回调：进入汇总时渲染图表，进入 AI 时刷新会话状态。
+   * @param index 新 Tab 下标
+   */
   onTabIndexChange(index: number): void {
     const key = this.tabKeys[index];
     if (key === 'summary') {
@@ -915,6 +313,7 @@ export class SysParamsComponent implements OnDestroy {
     }
   }
 
+  /** 按当前 query/module 拉取参数列表与模块统计 */
   loadTable(): void {
     this.loading = true;
     const params: Record<string, string> = {};
@@ -937,6 +336,7 @@ export class SysParamsComponent implements OnDestroy {
       });
   }
 
+  /** 从服务端恢复 AI 分析范围、结果 Markdown 与对话历史 */
   loadAiState(): void {
     this.http
       .get<{
@@ -962,17 +362,23 @@ export class SysParamsComponent implements OnDestroy {
       });
   }
 
+  /** 清除模块过滤并重新加载表格 */
   clearModuleFilter(): void {
     this.module = null;
     this.loadTable();
   }
 
+  /**
+   * 分析范围切换：切到「选中」且尚无选中项时打开选参弹窗。
+   * @param scope 新的分析范围
+   */
   onAnalyzeScopeChange(scope: AnalyzeScope): void {
     if (scope === 'selected' && !this.selectedCount) {
       this.openPickModal();
     }
   }
 
+  /** 打开选参弹窗，草稿同步当前已选 */
   openPickModal(): void {
     this.setDraftSelectedIds([...this.selectedIds]);
     this.aiQuery = '';
@@ -980,6 +386,10 @@ export class SysParamsComponent implements OnDestroy {
     this.pickModalVisible = true;
   }
 
+  /**
+   * 选参表格每页条数变更，并同步弹窗/表格高度。
+   * @param size 新的每页条数
+   */
   onPickPageSizeChange(size: number): void {
     this.pickPageSize = size;
     this.syncPickTableScroll();
@@ -998,10 +408,12 @@ export class SysParamsComponent implements OnDestroy {
     };
   }
 
+  /** 关闭选参弹窗（不提交草稿） */
   closePickModal(): void {
     this.pickModalVisible = false;
   }
 
+  /** 确认选参：草稿写入正式选中并关闭弹窗 */
   confirmPickModal(): void {
     this.setSelectedIds([...this.draftSelectedIds]);
     this.pickModalVisible = false;
@@ -1010,6 +422,10 @@ export class SysParamsComponent implements OnDestroy {
     }
   }
 
+  /**
+   * 判断草稿中是否已选中某 id。
+   * @param id 参数 id
+   */
   isDraftSelected(id: number): boolean {
     return this.draftSelectedIds.has(id);
   }
@@ -1031,32 +447,41 @@ export class SysParamsComponent implements OnDestroy {
     this.setDraftSelectedIds([...next]);
   }
 
+  /** 将当前过滤结果全部加入草稿选中 */
   selectAllFilteredDraft(): void {
     const next = new Set(this.draftSelectedIds);
     for (const item of this.filteredPickItems) next.add(item.id);
     this.setDraftSelectedIds([...next]);
   }
 
+  /** 清空选参弹窗草稿选中 */
   clearDraftSelection(): void {
     this.setDraftSelectedIds([]);
   }
 
+  /** 清空已确认的分析选中 */
   clearSelection(): void {
     this.setSelectedIds([]);
   }
 
+  /** 写入正式选中 id 并同步 selectedCount */
   private setSelectedIds(ids: number[]): void {
     const uniq = [...new Set(ids.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0))];
     this.selectedIds = new Set(uniq);
     this.selectedCount = this.selectedIds.size;
   }
 
+  /** 写入草稿选中 id 并同步 draftSelectedCount */
   private setDraftSelectedIds(ids: number[]): void {
     const uniq = [...new Set(ids.map((n) => Number(n)).filter((n) => Number.isFinite(n) && n > 0))];
     this.draftSelectedIds = new Set(uniq);
     this.draftSelectedCount = this.draftSelectedIds.size;
   }
 
+  /**
+   * 选择 Excel 文件后全量导入参数。
+   * @param event input[type=file] change 事件
+   */
   onFileChange(event: Event): void {
     const file = (event.target as HTMLInputElement).files?.[0];
     if (!file) return;
@@ -1077,6 +502,10 @@ export class SysParamsComponent implements OnDestroy {
     });
   }
 
+  /**
+   * 打开参数详情弹窗并拉取详情。
+   * @param id 参数主键
+   */
   openDetail(id: number): void {
     this.detail = null;
     this.detailLoading = true;
@@ -1109,16 +538,25 @@ export class SysParamsComponent implements OnDestroy {
     });
   }
 
+  /** 关闭详情弹窗并清空详情状态 */
   closeDetail(): void {
     this.modalVisible = false;
     this.detail = null;
     this.detailLoading = false;
   }
 
+  /**
+   * 将单元格值格式化为展示文本。
+   * @param value 任意单元格值
+   */
   displayCell(value: unknown): string {
     return this.formatCell(value).text;
   }
 
+  /**
+   * 图片加载失败时替换为异常提示节点。
+   * @param event img error 事件
+   */
   onImageError(event: Event): void {
     const img = event.target as HTMLImageElement | null;
     if (!img?.parentElement) return;
@@ -1128,6 +566,7 @@ export class SysParamsComponent implements OnDestroy {
     img.replaceWith(tip);
   }
 
+  /** 按当前范围发起 SSE 流式 AI 分析（全量或选中 ids） */
   analyze(): void {
     if (this.analyzeScope === 'selected' && !this.selectedCount) {
       this.message.warning('请先勾选要分析的参数');
@@ -1138,11 +577,8 @@ export class SysParamsComponent implements OnDestroy {
     const body =
       this.analyzeScope === 'selected' ? { ids: [...this.selectedIds] } : { ids: [] };
 
-    void postSse(
-      `${API_BASE}/sys-params/analyze/stream`,
-      body,
-      this.auth.token(),
-      (ev) => {
+    this.sse.postSse(`${API_BASE}/sys-params/analyze/stream`, body).subscribe({
+      next: (ev) => {
         if (ev.type === 'meta') {
           this.lastScope = ev.scope === 'selected' ? 'selected' : 'all';
           this.lastSelectedCount = ev.count || (ev.selectedIds || []).length;
@@ -1155,8 +591,12 @@ export class SysParamsComponent implements OnDestroy {
           this.analysis = ev.markdown;
         }
       },
-    )
-      .then(() => {
+      error: (error: Error) => {
+        this.analyzing = false;
+        this.cdr.detectChanges();
+        this.message.error(error.message || 'AI 分析失败');
+      },
+      complete: () => {
         this.analyzing = false;
         this.cdr.detectChanges();
         this.message.success(
@@ -1164,14 +604,11 @@ export class SysParamsComponent implements OnDestroy {
             ? `已完成 ${this.lastSelectedCount} 条选中参数分析`
             : '已完成整体分析',
         );
-      })
-      .catch((error: Error) => {
-        this.analyzing = false;
-        this.cdr.detectChanges();
-        this.message.error(error.message || 'AI 分析失败');
-      });
+      },
+    });
   }
 
+  /** 发送右侧对话（SSE 流式追加助手回复） */
   sendChat(): void {
     if (!this.chatInput.trim() || this.chatting) return;
     const message = this.chatInput.trim();
@@ -1186,11 +623,8 @@ export class SysParamsComponent implements OnDestroy {
     setTimeout(() => this.scrollChat(), 0);
 
     const assistantIndex = this.chatMessages.length - 1;
-    void postSse(
-      `${API_BASE}/sys-params/chat/stream`,
-      { message },
-      this.auth.token(),
-      (ev) => {
+    this.sse.postSse(`${API_BASE}/sys-params/chat/stream`, { message }).subscribe({
+      next: (ev) => {
         if (ev.type === 'delta' && ev.content) {
           const cur = this.chatMessages[assistantIndex];
           if (cur) {
@@ -1208,14 +642,7 @@ export class SysParamsComponent implements OnDestroy {
           this.chatMessages = ev.chatMessages as ChatTurn[];
         }
       },
-    )
-      .then(() => {
-        this.chatting = false;
-        this.needScrollChat = true;
-        this.cdr.detectChanges();
-        setTimeout(() => this.scrollChat(), 0);
-      })
-      .catch((error: Error) => {
+      error: (error: Error) => {
         this.chatting = false;
         this.chatInput = message;
         // 去掉空的助手气泡与刚发的用户消息（若未完成）
@@ -1228,14 +655,29 @@ export class SysParamsComponent implements OnDestroy {
         }
         this.cdr.detectChanges();
         this.message.error(error.message || '对话失败');
-      });
+      },
+      complete: () => {
+        this.chatting = false;
+        this.needScrollChat = true;
+        this.cdr.detectChanges();
+        setTimeout(() => this.scrollChat(), 0);
+      },
+    });
   }
 
+  /**
+   * 使用快捷文案填入输入框并立即发送。
+   * @param q 快捷问题文案
+   */
   askQuick(q: string): void {
     this.chatInput = q;
     this.sendChat();
   }
 
+  /**
+   * 对话输入 Enter 发送（Shift+Enter 换行）。
+   * @param event 键盘事件
+   */
   onChatEnter(event: Event): void {
     const e = event as KeyboardEvent;
     if (e.shiftKey) return;
@@ -1243,6 +685,7 @@ export class SysParamsComponent implements OnDestroy {
     this.sendChat();
   }
 
+  /** 请求服务端清空对话历史 */
   clearChat(): void {
     this.http.post<{ chatMessages: ChatTurn[] }>(`${API_BASE}/sys-params/chat/clear`, {}).subscribe({
       next: () => {
@@ -1255,6 +698,7 @@ export class SysParamsComponent implements OnDestroy {
     });
   }
 
+  /** 将对话列表滚至底部 */
   private scrollChat(): void {
     if (!this.needScrollChat) return;
     const el = this.chatListRef?.nativeElement;
@@ -1264,6 +708,7 @@ export class SysParamsComponent implements OnDestroy {
     }
   }
 
+  /** 规范化详情中的 imageUrls / raw，避免空值异常 */
   private normalizeDetail(detail: Detail): Detail {
     return {
       ...detail,
@@ -1272,6 +717,7 @@ export class SysParamsComponent implements OnDestroy {
     };
   }
 
+  /** 格式化单元格展示文本，异常时标记 abnormal */
   private formatCell(value: unknown): { text: string; abnormal: boolean } {
     try {
       if (value == null || value === '') return { text: '-', abnormal: false };
@@ -1284,6 +730,7 @@ export class SysParamsComponent implements OnDestroy {
     }
   }
 
+  /** 判断单元格是否视为空（不展示） */
   private isEmptyCell(value: unknown): boolean {
     if (value == null) return true;
     if (typeof value === 'string') return value.trim() === '';
@@ -1298,6 +745,7 @@ export class SysParamsComponent implements OnDestroy {
     return false;
   }
 
+  /** 点击图表模块名后切换到表格并按该模块过滤 */
   private openModuleTable(name: string): void {
     if (!name || name.startsWith('其他')) return;
     this.module = name;
@@ -1307,6 +755,7 @@ export class SysParamsComponent implements OnDestroy {
     this.message.success(`已打开模块表格：${name}`);
   }
 
+  /** 根据 modules 渲染/更新柱状图与饼图 */
   private renderCharts(): void {
     if (!this.modules.length) {
       this.disposeCharts();
@@ -1394,6 +843,7 @@ export class SysParamsComponent implements OnDestroy {
     this.pieChart.on('click', (params) => this.openModuleTable(String(params.name || '')));
   }
 
+  /** 销毁并清空 ECharts 实例 */
   private disposeCharts(): void {
     this.barChart?.dispose();
     this.pieChart?.dispose();

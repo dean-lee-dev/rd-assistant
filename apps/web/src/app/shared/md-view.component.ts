@@ -8,113 +8,33 @@ marked.setOptions({
   breaks: true,
 });
 
+/**
+ * Markdown 预览组件：将文本渲染为安全 HTML，支持流式输出光标样式。
+ *
+ * @example
+ * ```html
+ * <app-md-view [content]="markdown" [streaming]="loading"></app-md-view>
+ * ```
+ */
 @Component({
   selector: 'app-md-view',
-  standalone: true,
-  template: `<div class="md-view" [class.streaming]="streaming" [innerHTML]="html"></div>`,
-  styles: [
-    `
-      .md-view {
-        line-height: 1.65;
-        color: #262626;
-        word-break: break-word;
-      }
-      .md-view :where(h1, h2, h3, h4) {
-        margin: 0.9em 0 0.45em;
-        font-weight: 600;
-        line-height: 1.35;
-      }
-      .md-view h1 {
-        font-size: 1.35em;
-      }
-      .md-view h2 {
-        font-size: 1.2em;
-      }
-      .md-view h3 {
-        font-size: 1.08em;
-      }
-      .md-view h4 {
-        font-size: 1em;
-      }
-      .md-view p {
-        margin: 0.45em 0;
-      }
-      .md-view ul,
-      .md-view ol {
-        margin: 0.4em 0 0.6em;
-        padding-left: 1.4em;
-      }
-      .md-view li {
-        margin: 0.2em 0;
-      }
-      .md-view code {
-        font-family: Consolas, 'Courier New', monospace;
-        background: #f5f5f5;
-        border-radius: 4px;
-        padding: 0.1em 0.35em;
-        font-size: 0.92em;
-      }
-      .md-view pre {
-        background: #f5f5f5;
-        border: 1px solid #f0f0f0;
-        border-radius: 8px;
-        padding: 10px 12px;
-        overflow: auto;
-      }
-      .md-view pre code {
-        background: transparent;
-        padding: 0;
-      }
-      .md-view blockquote {
-        margin: 0.6em 0;
-        padding: 0.2em 0 0.2em 12px;
-        border-left: 3px solid #91caff;
-        color: #595959;
-      }
-      .md-view hr {
-        border: none;
-        border-top: 1px solid #f0f0f0;
-        margin: 12px 0;
-      }
-      .md-view table {
-        width: 100%;
-        border-collapse: collapse;
-        margin: 0.6em 0;
-        font-size: 13px;
-      }
-      .md-view th,
-      .md-view td {
-        border: 1px solid #f0f0f0;
-        padding: 6px 8px;
-        text-align: left;
-      }
-      .md-view th {
-        background: #fafafa;
-      }
-      .md-view.streaming::after {
-        content: '';
-        display: inline-block;
-        width: 7px;
-        height: 1em;
-        margin-left: 3px;
-        background: #1677ff;
-        border-radius: 1px;
-        animation: blink 1s step-end infinite;
-        vertical-align: text-bottom;
-      }
-      @keyframes blink {
-        50% {
-          opacity: 0;
-        }
-      }
-    `,
-  ],
+  templateUrl: './md-view.component.html',
+  styleUrl: './md-view.component.scss',
 })
 export class MdViewComponent {
+  /** 已消毒、可绑定到 `[innerHTML]` 的 HTML。 */
   html: SafeHtml = '';
+
+  /** 原始 Markdown 文本缓存。 */
   private raw = '';
+
+  /** 为 true 时展示流式输出光标动画。 */
   @Input() streaming = false;
 
+  /**
+   * Markdown 正文；变更时重新解析并消毒。
+   * @param value Markdown 源文本
+   */
   @Input() set content(value: string | null | undefined) {
     this.raw = value || '';
     this.render();
@@ -122,6 +42,7 @@ export class MdViewComponent {
 
   constructor(private readonly sanitizer: DomSanitizer) {}
 
+  /** 解析 Markdown → DOMPurify 消毒 → 信任为 SafeHtml。 */
   private render(): void {
     const parsed = marked.parse(this.raw || '') as string;
     const clean = DOMPurify.sanitize(parsed, {

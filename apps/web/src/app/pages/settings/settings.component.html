@@ -1,0 +1,148 @@
+
+    <nz-card nzTitle="系统配置" class="settings-card">
+      <nz-alert
+        nzType="info"
+        nzShowIcon
+        [nzMessage]="'当前用户：' + (auth.user()?.username || '管理员')"
+        class="notice"
+      ></nz-alert>
+
+      <div class="usage-panel">
+        <div class="usage-head">
+          <div>
+            <div class="usage-title">Token 用量提醒</div>
+            <div class="usage-sub muted">
+              基于本应用实际调用累计（厂商侧账单以官方后台为准）
+              @if (usage.usageUpdatedAt) {
+                · 最近更新 {{ usage.usageUpdatedAt | date: 'yyyy-MM-dd HH:mm' }}
+              }
+            </div>
+          </div>
+          <button
+            nz-button
+            nzSize="small"
+            (click)="resetUsage()"
+            [nzLoading]="resetting"
+            [disabled]="!usage.totalTokensTotal && !usage.requestCount"
+          >
+            清零统计
+          </button>
+        </div>
+        <div class="usage-grid">
+          <div class="usage-item">
+            <div class="num">{{ formatNum(usage.totalTokensTotal) }}</div>
+            <div class="label">累计 Total</div>
+          </div>
+          <div class="usage-item">
+            <div class="num">{{ formatNum(usage.promptTokensTotal) }}</div>
+            <div class="label">累计 Prompt</div>
+          </div>
+          <div class="usage-item">
+            <div class="num">{{ formatNum(usage.completionTokensTotal) }}</div>
+            <div class="label">累计 Completion</div>
+          </div>
+          <div class="usage-item">
+            <div class="num">{{ formatNum(usage.requestCount) }}</div>
+            <div class="label">调用次数</div>
+          </div>
+        </div>
+        <div class="usage-last muted">
+          最近一次：Prompt {{ formatNum(usage.lastPromptTokens) }} · Completion
+          {{ formatNum(usage.lastCompletionTokens) }} · Total
+          {{ formatNum(usage.lastTotalTokens) }}
+        </div>
+      </div>
+
+      <form nz-form nzLayout="vertical">
+        <nz-form-item>
+          <nz-form-label>Provider（厂商）</nz-form-label>
+          <nz-form-control>
+            <nz-select
+              [(ngModel)]="settings.provider"
+              name="provider"
+              (ngModelChange)="onProviderChange($event)"
+              style="width: 100%"
+            >
+              @for (p of providers; track p.id) {
+                <nz-option [nzValue]="p.id" [nzLabel]="p.label"></nz-option>
+              }
+            </nz-select>
+          </nz-form-control>
+        </nz-form-item>
+
+        <nz-form-item>
+          <nz-form-label>Base URL</nz-form-label>
+          <nz-form-control>
+            <nz-select
+              [(ngModel)]="settings.baseUrl"
+              name="baseUrl"
+              nzShowSearch
+              nzAllowClear
+              nzPlaceHolder="选择或输入 Base URL"
+              style="width: 100%"
+              (nzOnSearch)="onBaseUrlSearch($event)"
+            >
+              @for (u of baseUrlOptions; track u) {
+                <nz-option [nzValue]="u" [nzLabel]="u"></nz-option>
+              }
+              @if (baseUrlSearch && !baseUrlOptions.includes(baseUrlSearch)) {
+                <nz-option
+                  [nzValue]="baseUrlSearch"
+                  [nzLabel]="baseUrlSearch + '（自定义）'"
+                ></nz-option>
+              }
+            </nz-select>
+            <small>请求路径为：Base URL + /v1/chat/completions</small>
+          </nz-form-control>
+        </nz-form-item>
+
+        <nz-form-item>
+          <nz-form-label>模型</nz-form-label>
+          <nz-form-control>
+            <nz-select
+              [(ngModel)]="settings.model"
+              name="model"
+              nzShowSearch
+              nzAllowClear
+              nzPlaceHolder="选择或输入模型名"
+              style="width: 100%"
+              (nzOnSearch)="onModelSearch($event)"
+            >
+              @for (m of modelOptions; track m) {
+                <nz-option [nzValue]="m" [nzLabel]="m"></nz-option>
+              }
+              @if (modelSearch && !modelOptions.includes(modelSearch)) {
+                <nz-option
+                  [nzValue]="modelSearch"
+                  [nzLabel]="modelSearch + '（自定义）'"
+                ></nz-option>
+              }
+            </nz-select>
+            <small>可从列表选择，也可直接输入自定义模型名</small>
+          </nz-form-control>
+        </nz-form-item>
+
+        <nz-form-item>
+          <nz-form-label>API Key</nz-form-label>
+          <nz-form-control>
+            <input
+              nz-input
+              type="password"
+              [(ngModel)]="apiKey"
+              name="apiKey"
+              [placeholder]="settings.apiKeyMasked || '请输入 API Key'"
+            />
+            @if (settings.apiKeyConfigured) {
+              <small>已配置；留空不会覆盖现有 Key。</small>
+            }
+          </nz-form-control>
+        </nz-form-item>
+
+        <button nz-button nzType="primary" (click)="save()" [nzLoading]="saving">保存配置</button>
+        <button nz-button (click)="test()" [nzLoading]="testing">测试连接</button>
+      </form>
+      @if (testResult) {
+        <nz-alert nzType="success" nzShowIcon [nzMessage]="testResult" class="notice"></nz-alert>
+      }
+    </nz-card>
+  

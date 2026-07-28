@@ -12,6 +12,16 @@ import { authInterceptor } from './core/auth/auth.interceptor';
 
 registerLocaleData(zh);
 
+/**
+ * 应用级 Provider 配置：路由、中文 i18n、动画、HTTP（含鉴权拦截器）。
+ */
 export const appConfig: ApplicationConfig = {
-  providers: [provideZoneChangeDetection({ eventCoalescing: true }), provideRouter(routes), provideNzI18n(zh_CN), importProvidersFrom(FormsModule), provideAnimationsAsync(), provideHttpClient(withInterceptors([authInterceptor]))]
+  providers: [
+    provideZoneChangeDetection({ eventCoalescing: true }),
+    provideRouter(routes),
+    provideNzI18n(zh_CN),
+    importProvidersFrom(FormsModule),
+    provideAnimationsAsync(),
+    provideHttpClient(withInterceptors([authInterceptor])),
+  ],
 };

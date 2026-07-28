@@ -1,3 +1,9 @@
+/**
+ * 系统配置页（/settings）
+ *
+ * 管理 AI 服务商与密钥（OpenAI 兼容协议），并展示 / 清零 Token 用量统计。
+ * Key 仅提交至服务端存储，前端只展示是否已配置及脱敏值。
+ */
 import { Component, OnInit, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
@@ -12,34 +18,58 @@ import { NzSelectModule } from 'ng-zorro-antd/select';
 import { API_BASE } from '../../core/api/api-base';
 import { AuthService } from '../../core/auth/auth.service';
 
+/** AI Token 用量统计（累计 + 最近一次请求） */
 interface AiUsage {
+  /** 累计 prompt token 数 */
   promptTokensTotal: number;
+  /** 累计 completion token 数 */
   completionTokensTotal: number;
+  /** 累计总 token 数 */
   totalTokensTotal: number;
+  /** 累计请求次数 */
   requestCount: number;
+  /** 最近一次请求的 prompt token 数 */
   lastPromptTokens: number;
+  /** 最近一次请求的 completion token 数 */
   lastCompletionTokens: number;
+  /** 最近一次请求的总 token 数 */
   lastTotalTokens: number;
+  /** 用量最近更新时间（ISO 字符串），无数据时为 null */
   usageUpdatedAt: string | null;
 }
 
+/** 服务端返回 / 表单绑定的 AI 配置 */
 interface AiSettings {
+  /** 厂商预设 id（如 deepseek、openai、custom） */
   provider: string;
+  /** API Base URL（不含 /v1） */
   baseUrl: string;
+  /** 模型名称 */
   model: string;
+  /** 服务端是否已配置 API Key */
   apiKeyConfigured: boolean;
+  /** 脱敏后的 Key 展示，未配置时为 null */
   apiKeyMasked: string | null;
+  /** Token 用量统计（可选） */
   usage?: AiUsage;
 }
 
+/** 厂商预设：展示名、默认 Base URL 与可选模型列表 */
 interface ProviderPreset {
+  /** 预设唯一标识 */
   id: string;
+  /** 下拉展示名称 */
   label: string;
+  /** 默认 Base URL；自定义厂商可为空 */
   baseUrl: string;
+  /** 推荐模型列表；自定义厂商可为空 */
   models: string[];
 }
 
-/** OpenAI 兼容协议厂商（Base URL 不含 /v1） */
+/**
+ * OpenAI 兼容协议厂商预设（Base URL 不含 /v1）。
+ * 含 DeepSeek / OpenAI / 通义 / Moonshot / SiliconFlow 及自定义项。
+ */
 const AI_PROVIDERS: ProviderPreset[] = [
   {
     id: 'deepseek',
@@ -116,9 +146,11 @@ const AI_PROVIDERS: ProviderPreset[] = [
   },
 ];
 
+/**
+ * 系统配置页组件：AI 厂商 / Key / 模型配置，以及 Token 用量展示与清零。
+ */
 @Component({
   selector: 'app-settings',
-  standalone: true,
   imports: [
     CommonModule,
     FormsModule,
@@ -129,235 +161,20 @@ const AI_PROVIDERS: ProviderPreset[] = [
     NzInputModule,
     NzSelectModule,
   ],
-  template: `
-    <nz-card nzTitle="系统配置" class="settings-card">
-      <nz-alert
-        nzType="info"
-        nzShowIcon
-        [nzMessage]="'当前用户：' + (auth.user()?.username || '管理员')"
-        class="notice"
-      ></nz-alert>
-
-      <div class="usage-panel">
-        <div class="usage-head">
-          <div>
-            <div class="usage-title">Token 用量提醒</div>
-            <div class="usage-sub muted">
-              基于本应用实际调用累计（厂商侧账单以官方后台为准）
-              @if (usage.usageUpdatedAt) {
-                · 最近更新 {{ usage.usageUpdatedAt | date: 'yyyy-MM-dd HH:mm' }}
-              }
-            </div>
-          </div>
-          <button
-            nz-button
-            nzSize="small"
-            (click)="resetUsage()"
-            [nzLoading]="resetting"
-            [disabled]="!usage.totalTokensTotal && !usage.requestCount"
-          >
-            清零统计
-          </button>
-        </div>
-        <div class="usage-grid">
-          <div class="usage-item">
-            <div class="num">{{ formatNum(usage.totalTokensTotal) }}</div>
-            <div class="label">累计 Total</div>
-          </div>
-          <div class="usage-item">
-            <div class="num">{{ formatNum(usage.promptTokensTotal) }}</div>
-            <div class="label">累计 Prompt</div>
-          </div>
-          <div class="usage-item">
-            <div class="num">{{ formatNum(usage.completionTokensTotal) }}</div>
-            <div class="label">累计 Completion</div>
-          </div>
-          <div class="usage-item">
-            <div class="num">{{ formatNum(usage.requestCount) }}</div>
-            <div class="label">调用次数</div>
-          </div>
-        </div>
-        <div class="usage-last muted">
-          最近一次：Prompt {{ formatNum(usage.lastPromptTokens) }} · Completion
-          {{ formatNum(usage.lastCompletionTokens) }} · Total
-          {{ formatNum(usage.lastTotalTokens) }}
-        </div>
-      </div>
-
-      <form nz-form nzLayout="vertical">
-        <nz-form-item>
-          <nz-form-label>Provider（厂商）</nz-form-label>
-          <nz-form-control>
-            <nz-select
-              [(ngModel)]="settings.provider"
-              name="provider"
-              (ngModelChange)="onProviderChange($event)"
-              style="width: 100%"
-            >
-              @for (p of providers; track p.id) {
-                <nz-option [nzValue]="p.id" [nzLabel]="p.label"></nz-option>
-              }
-            </nz-select>
-          </nz-form-control>
-        </nz-form-item>
-
-        <nz-form-item>
-          <nz-form-label>Base URL</nz-form-label>
-          <nz-form-control>
-            <nz-select
-              [(ngModel)]="settings.baseUrl"
-              name="baseUrl"
-              nzShowSearch
-              nzAllowClear
-              nzPlaceHolder="选择或输入 Base URL"
-              style="width: 100%"
-              (nzOnSearch)="onBaseUrlSearch($event)"
-            >
-              @for (u of baseUrlOptions; track u) {
-                <nz-option [nzValue]="u" [nzLabel]="u"></nz-option>
-              }
-              @if (baseUrlSearch && !baseUrlOptions.includes(baseUrlSearch)) {
-                <nz-option
-                  [nzValue]="baseUrlSearch"
-                  [nzLabel]="baseUrlSearch + '（自定义）'"
-                ></nz-option>
-              }
-            </nz-select>
-            <small>请求路径为：Base URL + /v1/chat/completions</small>
-          </nz-form-control>
-        </nz-form-item>
-
-        <nz-form-item>
-          <nz-form-label>模型</nz-form-label>
-          <nz-form-control>
-            <nz-select
-              [(ngModel)]="settings.model"
-              name="model"
-              nzShowSearch
-              nzAllowClear
-              nzPlaceHolder="选择或输入模型名"
-              style="width: 100%"
-              (nzOnSearch)="onModelSearch($event)"
-            >
-              @for (m of modelOptions; track m) {
-                <nz-option [nzValue]="m" [nzLabel]="m"></nz-option>
-              }
-              @if (modelSearch && !modelOptions.includes(modelSearch)) {
-                <nz-option
-                  [nzValue]="modelSearch"
-                  [nzLabel]="modelSearch + '（自定义）'"
-                ></nz-option>
-              }
-            </nz-select>
-            <small>可从列表选择，也可直接输入自定义模型名</small>
-          </nz-form-control>
-        </nz-form-item>
-
-        <nz-form-item>
-          <nz-form-label>API Key</nz-form-label>
-          <nz-form-control>
-            <input
-              nz-input
-              type="password"
-              [(ngModel)]="apiKey"
-              name="apiKey"
-              [placeholder]="settings.apiKeyMasked || '请输入 API Key'"
-            />
-            @if (settings.apiKeyConfigured) {
-              <small>已配置；留空不会覆盖现有 Key。</small>
-            }
-          </nz-form-control>
-        </nz-form-item>
-
-        <button nz-button nzType="primary" (click)="save()" [nzLoading]="saving">保存配置</button>
-        <button nz-button (click)="test()" [nzLoading]="testing">测试连接</button>
-      </form>
-      @if (testResult) {
-        <nz-alert nzType="success" nzShowIcon [nzMessage]="testResult" class="notice"></nz-alert>
-      }
-    </nz-card>
-  `,
-  styles: [
-    `
-      .settings-card {
-        max-width: 760px;
-      }
-      .notice {
-        margin-bottom: 20px;
-      }
-      .usage-panel {
-        margin-bottom: 20px;
-        padding: 14px 16px;
-        background: #f6ffed;
-        border: 1px solid #b7eb8f;
-        border-radius: 8px;
-      }
-      .usage-head {
-        display: flex;
-        align-items: flex-start;
-        justify-content: space-between;
-        gap: 12px;
-        margin-bottom: 12px;
-      }
-      .usage-title {
-        font-weight: 600;
-        color: #389e0d;
-      }
-      .usage-sub {
-        margin-top: 4px;
-        font-size: 12px;
-      }
-      .usage-grid {
-        display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
-        gap: 10px;
-      }
-      .usage-item {
-        background: #fff;
-        border: 1px solid #d9f7be;
-        border-radius: 8px;
-        padding: 10px 12px;
-      }
-      .usage-item .num {
-        font-size: 18px;
-        font-weight: 650;
-        color: #237804;
-        font-variant-numeric: tabular-nums;
-      }
-      .usage-item .label {
-        margin-top: 2px;
-        font-size: 12px;
-        color: #8c8c8c;
-      }
-      .usage-last {
-        margin-top: 10px;
-        font-size: 12px;
-      }
-      .muted {
-        color: #8c8c8c;
-      }
-      button + button {
-        margin-left: 8px;
-      }
-      small {
-        display: block;
-        margin-top: 6px;
-        color: #8c8c8c;
-      }
-      @media (max-width: 720px) {
-        .usage-grid {
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-      }
-    `,
-  ],
+  templateUrl: './settings.component.html',
+  styleUrl: './settings.component.scss',
 })
 export class SettingsComponent implements OnInit {
+  /** HTTP 客户端 */
   private readonly http = inject(HttpClient);
+  /** 全局消息提示 */
   private readonly message = inject(NzMessageService);
+  /** 鉴权服务（加载当前用户等） */
   readonly auth = inject(AuthService);
+  /** 厂商预设列表（模板下拉用） */
   readonly providers = AI_PROVIDERS;
 
+  /** 当前 AI 配置（表单绑定 + 服务端回写） */
   settings: AiSettings = {
     provider: 'deepseek',
     baseUrl: 'https://api.deepseek.com',
@@ -365,14 +182,22 @@ export class SettingsComponent implements OnInit {
     apiKeyConfigured: false,
     apiKeyMasked: null,
   };
+  /** 用户新输入的 API Key（保存成功后清空，不回显明文） */
   apiKey = '';
+  /** 是否正在保存配置 */
   saving = false;
+  /** 是否正在测试连接 */
   testing = false;
+  /** 是否正在清零 Token 统计 */
   resetting = false;
+  /** 连接测试成功时的回复文案 */
   testResult = '';
+  /** 模型下拉的搜索关键字 */
   modelSearch = '';
+  /** Base URL 下拉的搜索关键字 */
   baseUrlSearch = '';
 
+  /** 当前 Token 用量；服务端未返回时给出全零默认值 */
   get usage(): AiUsage {
     return (
       this.settings.usage || {
@@ -388,6 +213,7 @@ export class SettingsComponent implements OnInit {
     );
   }
 
+  /** 当前选中的厂商预设；未知 id 时回退到「自定义」 */
   get currentProvider(): ProviderPreset {
     return (
       this.providers.find((p) => p.id === this.settings.provider) ||
@@ -395,6 +221,9 @@ export class SettingsComponent implements OnInit {
     );
   }
 
+  /**
+   * 模型下拉选项：预设模型列表，若当前 model 不在列表中则置顶插入。
+   */
   get modelOptions(): string[] {
     const list = [...this.currentProvider.models];
     if (this.settings.model && !list.includes(this.settings.model)) {
@@ -403,6 +232,9 @@ export class SettingsComponent implements OnInit {
     return list;
   }
 
+  /**
+   * Base URL 下拉选项：预设默认 URL + 当前已保存 URL（去重）。
+   */
   get baseUrlOptions(): string[] {
     const list: string[] = [];
     if (this.currentProvider.baseUrl) list.push(this.currentProvider.baseUrl);
@@ -412,15 +244,21 @@ export class SettingsComponent implements OnInit {
     return list;
   }
 
+  /** 初始化：拉取 AI 配置并刷新当前用户 */
   ngOnInit(): void {
     this.loadSettings();
     this.auth.loadCurrentUser();
   }
 
+  /**
+   * 将数字格式化为中文区域千分位字符串。
+   * @param n 原始数字
+   */
   formatNum(n: number): string {
     return (n || 0).toLocaleString('zh-CN');
   }
 
+  /** 从服务端加载 AI 配置 */
   loadSettings(): void {
     this.http.get<AiSettings>(`${API_BASE}/settings/ai`).subscribe({
       next: (settings) => {
@@ -429,6 +267,10 @@ export class SettingsComponent implements OnInit {
     });
   }
 
+  /**
+   * 应用服务端配置到表单；未知 provider 时映射为 custom。
+   * @param settings 服务端返回的 AI 配置
+   */
   applySettings(settings: AiSettings): void {
     this.settings = settings;
     if (!this.providers.some((p) => p.id === settings.provider)) {
@@ -436,6 +278,10 @@ export class SettingsComponent implements OnInit {
     }
   }
 
+  /**
+   * 切换厂商预设：同步默认 Base URL 与首个推荐模型，并清空搜索关键字。
+   * @param providerId 厂商预设 id
+   */
   onProviderChange(providerId: string): void {
     const preset = this.providers.find((p) => p.id === providerId);
     if (!preset) return;
@@ -450,14 +296,23 @@ export class SettingsComponent implements OnInit {
     this.baseUrlSearch = '';
   }
 
+  /**
+   * 更新模型下拉搜索关键字。
+   * @param value 搜索输入
+   */
   onModelSearch(value: string): void {
     this.modelSearch = (value || '').trim();
   }
 
+  /**
+   * 更新 Base URL 下拉搜索关键字。
+   * @param value 搜索输入
+   */
   onBaseUrlSearch(value: string): void {
     this.baseUrlSearch = (value || '').trim();
   }
 
+  /** 保存 AI 配置（含可选新 Key）到服务端 */
   save(): void {
     this.saving = true;
     const body = {
@@ -480,6 +335,7 @@ export class SettingsComponent implements OnInit {
     });
   }
 
+  /** 使用当前已保存配置发起连通性测试，成功时展示回复并刷新用量 */
   test(): void {
     this.testing = true;
     this.testResult = '';
@@ -498,6 +354,7 @@ export class SettingsComponent implements OnInit {
       });
   }
 
+  /** 清零服务端 Token 用量统计 */
   resetUsage(): void {
     this.resetting = true;
     this.http.post<AiSettings>(`${API_BASE}/settings/ai/usage/reset`, {}).subscribe({

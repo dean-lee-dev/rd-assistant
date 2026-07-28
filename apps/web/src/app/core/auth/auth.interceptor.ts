@@ -4,6 +4,9 @@ import { Router } from '@angular/router';
 import { catchError, throwError } from 'rxjs';
 import { AuthService } from './auth.service';
 
+/**
+ * HTTP 拦截器：为请求附加 Bearer Token；遇到 401 时登出并跳转登录页。
+ */
 export const authInterceptor: HttpInterceptorFn = (request, next) => {
   const auth = inject(AuthService);
   const router = inject(Router);

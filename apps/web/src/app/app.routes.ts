@@ -6,6 +6,11 @@ import { SettingsComponent } from './pages/settings/settings.component';
 import { SysParamsComponent } from './pages/sys-params/sys-params.component';
 import { WeeklyReportComponent } from './pages/weekly-report/weekly-report.component';
 
+/**
+ * 应用路由表。
+ * - `/login`：公开登录页
+ * - `/`：需登录的主布局，默认进入工时周报
+ */
 export const routes: Routes = [
   { path: 'login', component: LoginComponent },
   {

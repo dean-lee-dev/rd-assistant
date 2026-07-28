@@ -1,6 +1,9 @@
 import { TestBed } from '@angular/core/testing';
 import { AppComponent } from './app.component';
 
+/**
+ * 根组件基础测试：创建实例、标题字段、模板渲染。
+ */
 describe('AppComponent', () => {
   beforeEach(async () => {
     await TestBed.configureTestingModule({

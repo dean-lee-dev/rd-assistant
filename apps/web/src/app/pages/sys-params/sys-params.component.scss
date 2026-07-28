@@ -1,0 +1,322 @@
+
+      .filters {
+        display: grid;
+        grid-template-columns: 1fr 260px;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .filter-tip {
+        margin-bottom: 12px;
+        color: #595959;
+        font-size: 13px;
+      }
+      .filter-tip a {
+        margin-left: 12px;
+        cursor: pointer;
+      }
+      .summary {
+        padding: 8px 0 4px;
+      }
+      .summary-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 12px;
+      }
+      .summary-head h3 {
+        margin: 0;
+        font-size: 15px;
+      }
+      .muted {
+        color: #8c8c8c;
+        font-size: 13px;
+      }
+      .charts {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        gap: 16px;
+      }
+      .chart-panel {
+        min-width: 0;
+        background: #fafafa;
+        border: 1px solid #f0f0f0;
+        border-radius: 8px;
+        padding: 8px 4px 4px;
+      }
+      .chart-title {
+        padding: 0 12px 4px;
+        font-size: 13px;
+        color: #595959;
+      }
+      .chart {
+        width: 100%;
+        min-height: 280px;
+      }
+      .chart.pie {
+        height: 420px;
+      }
+      .detail-meta p {
+        margin: 0 0 8px;
+      }
+      .wrap {
+        word-break: break-all;
+      }
+      .abnormal {
+        color: #cf1322;
+      }
+      .image-item {
+        min-height: 40px;
+      }
+      .ai-pane {
+        display: flex;
+        flex-direction: column;
+        height: calc(100vh - 220px);
+        min-height: 420px;
+        overflow: hidden;
+      }
+      .ai-toolbar {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-bottom: 12px;
+        flex-shrink: 0;
+      }
+      .toolbar-hint {
+        flex: 1;
+        min-width: 160px;
+      }
+      .selected-count {
+        font-size: 13px;
+        color: #595959;
+      }
+      .clear-link {
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .select-actions {
+        display: flex;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 10px;
+        margin-bottom: 12px;
+        flex-shrink: 0;
+      }
+      .pick-modal-body {
+        display: flex;
+        flex-direction: column;
+        height: 100%;
+        width: 100%;
+        max-width: 100%;
+        overflow: hidden;
+      }
+      .pick-table-wrap {
+        flex: 1;
+        min-height: 0;
+        max-width: 100%;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .pick-table-wrap ::ng-deep .ant-spin-nested-loading,
+      .pick-table-wrap ::ng-deep .ant-spin-container,
+      .pick-table-wrap ::ng-deep .ant-table-wrapper {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+      .pick-table-wrap ::ng-deep .ant-table-pagination {
+        margin: 8px 0 0 !important;
+        flex-shrink: 0;
+      }
+      .pick-table-wrap ::ng-deep .ant-table-placeholder {
+        height: 260px;
+      }
+      .pick-table-wrap ::ng-deep .ant-empty {
+        margin-top: 60px;
+      }
+      .pick-table-wrap ::ng-deep .ant-table {
+        table-layout: fixed;
+      }
+      .ellipsis {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 0;
+      }
+      .ai-filter {
+        max-width: 220px;
+        flex: 1;
+      }
+      .pick-row {
+        cursor: pointer;
+      }
+      .check {
+        cursor: pointer;
+      }
+      .split {
+        flex: 1;
+        min-height: 0;
+        display: grid;
+        grid-template-columns: 1.1fr 0.9fr;
+        gap: 16px;
+        align-items: stretch;
+        overflow: hidden;
+      }
+      .left,
+      .right {
+        min-width: 0;
+        min-height: 0;
+        height: 100%;
+      }
+      .panel-card {
+        height: 100%;
+        display: flex;
+        flex-direction: column;
+      }
+      :host ::ng-deep .panel-card > .ant-card-body {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        padding-top: 12px;
+      }
+      .panel-body {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+      }
+      .scope-tip {
+        margin-bottom: 8px;
+      }
+      .analysis-box {
+        background: #fafafa;
+        border: 1px solid #f0f0f0;
+        border-radius: 8px;
+        padding: 14px 16px;
+        min-height: 80px;
+      }
+      .analysis-pre {
+        white-space: pre-wrap;
+        font-family: inherit;
+        background: #fafafa;
+        border: 1px solid #f0f0f0;
+        border-radius: 8px;
+        padding: 16px;
+        margin: 0;
+      }
+      .chat-panel {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .chat-hint {
+        margin-bottom: 8px;
+        flex-shrink: 0;
+      }
+      .chat-quick {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 10px;
+        flex-shrink: 0;
+      }
+      .quick {
+        cursor: pointer;
+      }
+      .chat-list {
+        flex: 1;
+        min-height: 0;
+        overflow: auto;
+        padding: 12px;
+        background: #fafafa;
+        border: 1px solid #f0f0f0;
+        border-radius: 8px;
+        margin-bottom: 10px;
+      }
+      .empty-chat {
+        text-align: center;
+        padding: 40px 0;
+      }
+      .bubble {
+        margin-bottom: 12px;
+        max-width: 92%;
+      }
+      .bubble.user {
+        margin-left: auto;
+      }
+      .bubble .role {
+        font-size: 12px;
+        color: #8c8c8c;
+        margin-bottom: 4px;
+      }
+      .bubble .content {
+        padding: 10px 12px;
+        border-radius: 10px;
+        background: #fff;
+        border: 1px solid #f0f0f0;
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      }
+      .bubble .content.md {
+        background: #fff;
+      }
+      .bubble.user .content {
+        background: #e6f4ff;
+        border-color: #91caff;
+      }
+      .pre {
+        white-space: pre-wrap;
+      }
+      .chat-input {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 10px;
+        align-items: end;
+        flex-shrink: 0;
+      }
+      .images {
+        display: grid;
+        gap: 12px;
+      }
+      .images img {
+        display: block;
+        max-width: 100%;
+        max-height: 480px;
+        object-fit: contain;
+        border: 1px solid #eee;
+        background: #fafafa;
+      }
+      @media (max-width: 1100px) {
+        .charts {
+          grid-template-columns: 1fr;
+        }
+        .ai-pane {
+          height: auto;
+          min-height: 0;
+          overflow: visible;
+        }
+        .split {
+          grid-template-columns: 1fr;
+          overflow: visible;
+        }
+        .panel-card,
+        .left,
+        .right {
+          height: auto;
+        }
+        :host ::ng-deep .panel-card > .ant-card-body {
+          overflow: visible;
+        }
+        .panel-body {
+          max-height: 420px;
+        }
+        .chat-list {
+          height: 280px;
+          flex: none;
+        }
+      }
+    

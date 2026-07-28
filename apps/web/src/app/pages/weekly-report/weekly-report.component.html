@@ -1,0 +1,165 @@
+
+    <nz-card nzTitle="工时周报" [nzExtra]="actions">
+      <ng-template #actions>
+        <input #fileInput type="file" accept=".xlsx,.xls" hidden (change)="onFileChange($event)" />
+        <button nz-button (click)="fileInput.click()" [nzLoading]="uploading">上传 Excel</button>
+        <button
+          nz-button
+          nzType="primary"
+          (click)="generate()"
+          [nzLoading]="generating"
+          [disabled]="!importId"
+        >
+          生成周报
+        </button>
+      </ng-template>
+      @if (importName) {
+        <p>最近导入：<strong>{{ importName }}</strong>，共 {{ rowCount }} 条记录。</p>
+      } @else {
+        <p class="muted">请先上传工时 Excel。</p>
+      }
+      @for (warning of warnings; track warning) {
+        <nz-alert nzType="warning" nzShowIcon [nzMessage]="warning" class="notice"></nz-alert>
+      }
+      @if (report?.aiError) {
+        <nz-alert
+          nzType="warning"
+          nzShowIcon
+          [nzMessage]="'AI 未完成：' + report?.aiError + '（已使用规则汇总）'"
+          class="notice"
+        ></nz-alert>
+      }
+    </nz-card>
+
+    @if (report) {
+      <div class="split">
+        <nz-card class="left" nzTitle="周报汇总" [nzExtra]="copyActions">
+          <ng-template #copyActions>
+            <button nz-button (click)="exportSection('completed', 'md')">导出本周 Markdown</button>
+            <button nz-button (click)="exportSection('completed', 'html')">导出本周富文本</button>
+            <button nz-button (click)="exportSection('plan', 'md')">导出下周 Markdown</button>
+            <button nz-button nzType="primary" (click)="exportSection('plan', 'html')">导出下周富文本</button>
+            <button nz-button (click)="save()" [nzLoading]="saving">保存</button>
+          </ng-template>
+
+          <div class="section">
+            <div class="section-head">
+              <div class="section-title">本周完成工作</div>
+              <div class="mode-row">
+                <nz-radio-group
+                  [(ngModel)]="completedMode"
+                  (ngModelChange)="onCompletedModeChange($event)"
+                  nzButtonStyle="solid"
+                  nzSize="small"
+                >
+                  <label nz-radio-button nzValue="original">原始</label>
+                  <label nz-radio-button nzValue="ai">AI 润色</label>
+                </nz-radio-group>
+                <button
+                  nz-button
+                  nzSize="small"
+                  (click)="optimizeSection('completed')"
+                  [nzLoading]="optimizingCompleted"
+                >
+                  {{ report.content.completedWorkHtmlAi ? '重新 AI 润色' : '生成 AI 润色' }}
+                </button>
+              </div>
+            </div>
+            <div
+              #completedBox
+              class="rich-box"
+              contenteditable="true"
+              (input)="onCompletedInput($event)"
+            ></div>
+          </div>
+
+          <div class="section">
+            <div class="section-head">
+              <div class="section-title">下周工作计划</div>
+              <div class="mode-row">
+                <nz-radio-group
+                  [(ngModel)]="planMode"
+                  (ngModelChange)="onPlanModeChange($event)"
+                  nzButtonStyle="solid"
+                  nzSize="small"
+                >
+                  <label nz-radio-button nzValue="original">原始</label>
+                  <label nz-radio-button nzValue="ai">AI 润色</label>
+                </nz-radio-group>
+                <button
+                  nz-button
+                  nzSize="small"
+                  (click)="optimizeSection('plan')"
+                  [nzLoading]="optimizingPlan"
+                >
+                  {{ report.content.nextWeekPlanHtmlAi ? '重新 AI 润色' : '生成 AI 润色' }}
+                </button>
+              </div>
+            </div>
+            <div
+              #planBox
+              class="rich-box"
+              contenteditable="true"
+              (input)="onPlanInput($event)"
+            ></div>
+          </div>
+        </nz-card>
+
+        <nz-card class="right" nzTitle="ai小助手对话" [nzExtra]="chatExtra">
+          <ng-template #chatExtra>
+            <button nz-button nzSize="small" (click)="clearChat()" [disabled]="!chatMessages.length">
+              清空对话
+            </button>
+          </ng-template>
+          <p class="muted chat-hint">可基于左侧周报继续追问、润色或讨论本周工作。</p>
+          <div class="chat-quick">
+            @for (q of quickQuestions; track q) {
+              <nz-tag class="quick" (click)="askQuick(q)">{{ q }}</nz-tag>
+            }
+          </div>
+          <div class="chat-list" #chatList>
+            @if (!chatMessages.length && !chatting) {
+              <div class="muted empty-chat">暂无对话，在下方输入后开始沟通。</div>
+            }
+            @for (msg of chatMessages; track $index) {
+              <div
+                class="bubble"
+                [class.user]="msg.role === 'user'"
+                [class.assistant]="msg.role === 'assistant'"
+              >
+                <div class="role">{{ msg.role === 'user' ? '我' : 'ai小助手' }}</div>
+                @if (msg.role === 'assistant') {
+                  <div class="content md">
+                    <app-md-view
+                      [content]="msg.content"
+                      [streaming]="chatting && $index === chatMessages.length - 1"
+                    ></app-md-view>
+                  </div>
+                } @else {
+                  <div class="content pre">{{ msg.content }}</div>
+                }
+              </div>
+            }
+          </div>
+          <div class="chat-input">
+            <textarea
+              nz-input
+              rows="3"
+              [(ngModel)]="chatInput"
+              placeholder="就本周工作继续提问…"
+              (keydown.enter)="onChatEnter($event)"
+            ></textarea>
+            <button
+              nz-button
+              nzType="primary"
+              (click)="sendChat()"
+              [nzLoading]="chatting"
+              [disabled]="!chatInput.trim()"
+            >
+              发送
+            </button>
+          </div>
+        </nz-card>
+      </div>
+    }
+  
