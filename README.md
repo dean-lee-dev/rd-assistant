@@ -4,7 +4,7 @@
 
 - 前端：Angular 19.2 + ng-zorro（`apps/web`）
 - 后端：NestJS + TypeORM + sql.js（SQLite 文件，`apps/api`）
-- 文档：[docs/CONTEXT.md](docs/CONTEXT.md) · [docs/10001/技术方案.md](docs/10001/技术方案.md)
+- 文档：[docs/CONTEXT.md](docs/CONTEXT.md) · [docs/10001/技术方案.md](docs/10001/技术方案.md) · [docs/10001/系统消化文档.md](docs/10001/系统消化文档.md)
 
 ## 环境
 

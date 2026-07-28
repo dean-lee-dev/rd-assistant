@@ -1,6 +1,6 @@
 # 个人研发效能助手 — 跨对话上下文
 
-> **给后续 Agent / 新对话**：开场先读本文件，再读 `docs/10001/技术方案.md`。  
+> **给后续 Agent / 新对话**：开场先读本文件，再读 `docs/10001/技术方案.md`；若要对照代码消化全系统，读 [系统消化文档.md](./10001/系统消化文档.md)。  
 > **维护约定**：每次对话只要产生需求变更、技术决策、实现进度或待办变化，必须在结束前更新本文件（追加「变更日志」并改「当前状态」）。
 
 ## 项目标识
@@ -11,6 +11,7 @@
 | Git | 已 `git init -b master`；单人开发 |
 | featId | `10001` |
 | 技术方案 | [docs/10001/技术方案.md](./10001/技术方案.md) |
+| 系统消化文档 | [docs/10001/系统消化文档.md](./10001/系统消化文档.md) |
 
 ## 一句话目标
 
@@ -47,6 +48,7 @@ apps/web/          Angular 19.2 + ng-zorro
 apps/api/          NestJS + TypeORM + sql.js
 data/              sqlite + uploads + sample-worktime.xlsx
 docs/10001/技术方案.md
+docs/10001/系统消化文档.md
 docs/CONTEXT.md
 README.md
 ```
@@ -115,9 +117,10 @@ README.md
 | 2026-07-28 13:40 | SSE 由原生 `fetch` 改为 Angular `HttpClient`（`observe: 'events'` + `reportProgress`）；抽为 `SseClient` 根服务。 |
 | 2026-07-28 13:43 | 文件名对齐为 `sse-client.service.ts`；配置洞察分析/对话、工时周报对话均已改用该服务。 |
 | 2026-07-28 13:46 | 补齐技术方案与 CONTEXT；提交前端外提模板/样式、JSDoc、SseClient 改造。 |
+| 2026-07-28 15:17 | 新增 `docs/10001/系统消化文档.md`（架构～AI～技术债六章，供原作者对照代码消化）。 |
 
 ## 下一对话建议开场动作
 
-1. 读本文件 + 技术方案。  
+1. 读本文件 + 技术方案；深入读代码时打开系统消化文档。  
 2. 若要增强：真实图1/图3 Excel 联调、AI Key 联调、改密、PG 迁移等。  
 3. 本地启动见 README 双终端命令。
