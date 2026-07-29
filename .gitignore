@@ -7,6 +7,12 @@ coverage/
 .DS_Store
 .env
 .env.local
+!.env.example
+
+# 部署密钥与证书：绝不入库
+deploy/.htpasswd
+deploy/certs/
+deploy/certbot-webroot/
 .cursor/
 data/*.sqlite
 data/*.db

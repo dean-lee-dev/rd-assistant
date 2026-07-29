@@ -16,6 +16,7 @@ import { AuthGuard } from '@nestjs/passport';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { endSse, initSse, writeSse } from '../common/sse';
+import { EXCEL_UPLOAD_OPTIONS } from '../common/upload';
 import { SysParamsService } from './sys-params.service';
 
 function sseErrorMessage(e: unknown, fallback: string): string {
@@ -38,7 +39,7 @@ export class SysParamsController {
   constructor(private readonly sysParams: SysParamsService) {}
 
   @Post('import')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', EXCEL_UPLOAD_OPTIONS))
   import(@UploadedFile() file: Express.Multer.File) {
     return this.sysParams.importExcel(file);
   }

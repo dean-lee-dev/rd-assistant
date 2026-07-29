@@ -1,4 +1,4 @@
-import { Component, inject } from '@angular/core';
+import { Component, inject, isDevMode } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { NzAlertModule } from 'ng-zorro-antd/alert';
@@ -22,11 +22,11 @@ export class LoginComponent {
   private readonly auth = inject(AuthService);
   private readonly router = inject(Router);
 
-  /** 用户名（默认预填管理员）。 */
-  username = 'admin';
+  /** 用户名（仅开发构建预填管理员，生产为空）。 */
+  username = isDevMode() ? 'admin' : '';
 
-  /** 密码（默认预填初始密码，便于本地开发）。 */
-  password = 'admin123';
+  /** 密码（仅开发构建预填初始密码，生产为空，避免部署后暴露默认凭据）。 */
+  password = isDevMode() ? 'admin123' : '';
 
   /** 登录请求进行中。 */
   loading = false;

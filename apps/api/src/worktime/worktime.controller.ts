@@ -17,6 +17,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { WeeklyReportContent } from '../entities';
 import { endSse, initSse, writeSse } from '../common/sse';
+import { EXCEL_UPLOAD_OPTIONS } from '../common/upload';
 import { WorktimeService } from './worktime.service';
 
 function sseErrorMessage(e: unknown, fallback: string): string {
@@ -39,7 +40,7 @@ export class WorktimeController {
   constructor(private readonly worktime: WorktimeService) {}
 
   @Post('import')
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', EXCEL_UPLOAD_OPTIONS))
   import(@UploadedFile() file: Express.Multer.File) {
     return this.worktime.importExcel(file);
   }

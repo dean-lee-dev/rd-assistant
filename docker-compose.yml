@@ -1,0 +1,44 @@
+# 单台云主机部署：nginx 是唯一公网入口，api 不对外暴露端口。
+#
+# ⚠️ sql.js 期间的铁律：只能单实例。
+# 每个进程持有整份内存 DB 并全量覆写同一文件，并发写 = 后写者赢、前者全部丢失。
+# 因此不要加 replicas，也不要做新旧进程重叠的滚动发布；导入或 AI 分析进行中不要重启。
+
+services:
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /app/data
+      # 缺失则容器启动即失败（见 common/paths.ts 的 requiredEnv），不会静默退回开发兜底值
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 未配置}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASS: ${ADMIN_PASS:?ADMIN_PASS 未配置}
+      # 与本地保持一致，避免对话时间戳与用量时间偏移
+      TZ: Asia/Shanghai
+    volumes:
+      - assistant-data:/app/data
+    # 故意不声明 ports：仅通过内部网络供 nginx 访问，公网只开放 80/443
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    ports:
+      - '80:80'
+      - '443:443'
+    volumes:
+      - ./deploy/.htpasswd:/etc/nginx/.htpasswd:ro
+      - ./deploy/certs:/etc/nginx/certs:ro
+      - ./deploy/certbot-webroot:/var/www/certbot
+    environment:
+      TZ: Asia/Shanghai
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  assistant-data:

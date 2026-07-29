@@ -1,8 +1,8 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import * as ExcelJS from 'exceljs';
-import { writeFileSync, mkdirSync, existsSync } from 'fs';
+import { writeFileSync, mkdirSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
 import { SysParam, SysParamAiState, SysParamChatTurn } from '../entities';
@@ -20,6 +20,7 @@ export class SysParamsService {
     @InjectRepository(SysParam) private readonly params: Repository<SysParam>,
     @InjectRepository(SysParamAiState)
     private readonly aiState: Repository<SysParamAiState>,
+    private readonly dataSource: DataSource,
     private readonly ai: AiService,
   ) {}
 
@@ -77,8 +78,18 @@ export class SysParamsService {
       });
     });
 
-    await this.params.clear();
-    await this.params.save(rows.map((r) => this.params.create(r)));
+    // 必须使用事务的 EntityManager：注入的 repository 会走独立 queryRunner，
+    // 脱离事务并立即落盘，导致「清表成功、写入失败」时旧数据不可恢复。
+    try {
+      await this.dataSource.transaction(async (manager) => {
+        await manager.clear(SysParam);
+        await manager.save(rows.map((r) => manager.create(SysParam, r)));
+      });
+    } catch (e) {
+      // 事务已回滚、旧数据保留；本次已落盘的图片需清理，否则留下孤儿目录
+      rmSync(dir, { recursive: true, force: true });
+      throw e;
+    }
 
     return {
       imported: rows.length,

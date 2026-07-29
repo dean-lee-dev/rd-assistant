@@ -47,6 +47,8 @@ npm start
 
 可在启动前用环境变量覆盖：`ADMIN_USER` / `ADMIN_PASS` / `JWT_SECRET`。
 
+> 上表仅为**开发**兜底值，且登录页只在开发构建下预填（`isDevMode()`）。生产构建密码框为空，且 `JWT_SECRET` / `ADMIN_PASS` 缺失时服务拒绝启动。
+
 ## 功能入口
 
 1. **工时周报**：上传工时汇总 Excel → 生成周报（无 AI Key 时仍按任务号规则聚合，AI 字段留空）→ 编辑 → 复制 Markdown / 带格式文本  
@@ -59,10 +61,45 @@ npm start
 
 ## 数据目录
 
+运行数据默认落在 **`apps/data/`**（`common/paths.ts` 从 `apps/api/{src|dist}/common` 上溯三级得到 `<repo>/apps`），不是仓库根的 `data/`：
+
 ```text
-data/
+apps/data/
   assistant.sqlite   # 自动生成
   uploads/           # Excel 提取的图片等
+data/
+  sample-worktime.xlsx   # 仅样例，非运行数据
 ```
 
-上述文件默认 gitignore，勿提交真实 API Key。
+可用 `DATA_DIR` 显式指定（容器部署即用此方式挂载持久卷）。上述文件默认 gitignore，勿提交真实 API Key。
+
+## 部署（单台云主机 + Docker Compose + nginx）
+
+nginx 是唯一公网入口，前端静态文件与 `/api`、`/uploads` 同源，因此无需 CORS。API 容器**不映射端口**，仅通过内部网络供 nginx 访问。
+
+```bash
+# 1. 生成密钥与管理员密码
+cp .env.example .env
+openssl rand -base64 48        # 填入 JWT_SECRET，ADMIN_PASS 自行设强密码
+
+# 2. 生成整站 Basic Auth 凭据（在应用登录之外再加一道门）
+htpasswd -c deploy/.htpasswd <用户名>
+
+# 3. 放置证书（certbot 签发后）
+#    deploy/certs/fullchain.pem
+#    deploy/certs/privkey.pem
+
+# 4. 启动
+docker compose up -d --build
+```
+
+`JWT_SECRET` / `ADMIN_PASS` 在 `NODE_ENV=production` 下缺失会**直接启动失败**，这是刻意设计，避免静默退回开发兜底密钥。
+
+### 部署注意事项
+
+- **只能单实例。** sql.js 把整份数据库放在进程内存并全量覆写同一文件，两个进程同时写就是后写者赢、前者全丢。不要加 `replicas`，不要做新旧进程重叠的滚动发布；导入或 AI 分析进行中不要重启容器。
+- **Basic Auth 必须配合 HTTPS**：凭证只是 base64 编码。它同时保护了 `/uploads`（浏览器对 `<img>` 会自动附带同源 Basic 凭证），因此内部系统截图不会对公网裸奔。
+- **持久卷务必挂到 `DATA_DIR`（容器内 `/app/data`）**。若照旧文档挂仓库根的 `data/`，数据会留在容器可写层，`docker compose down` 即丢且全程不报错。
+- nginx 已配 `proxy_buffering off` 与 `proxy_read_timeout 600s`，缺任一项都会让 SSE 流式输出表现为「卡很久后一次性全部出现」或长分析被掐断。
+- 上传限制 50MB（`MAX_EXCEL_UPLOAD_BYTES` 与 nginx `client_max_body_size` 需保持一致），仅接受 `.xlsx`。
+- 数据库含**明文 API Key**，备份包属敏感物，勿放公开可读的对象存储。
