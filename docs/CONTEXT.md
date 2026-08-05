@@ -219,6 +219,7 @@ sql.js → PG（连 `synchronize` 关闭 + 初始 migration 一起做）、`/upl
 | 2026-08-05 18:51 | 用户追问多行时 `take:1` 是否够用。答：单行表才适合 take1；多行要先定业务语义——任一有效 Key / 指定 id / 最新一条，再用 `some` 或对应 where，不能瞎 take1。 |
 | 2026-08-05 18:52 | 用户问 P3 文件名拼写在哪：`apps/api/src/health/healty.module.ts`（少字母 h），`app.module.ts` 第 18 行 import 也指向该文件。 |
 | 2026-08-05 18:54 | 用户问错拼文件名为何不报错：import 路径与磁盘文件名一致即可；类名 `HealthModule` 与文件名无强制校验。已改为 `health.module.ts`。 |
+| 2026-08-05 18:56 | 提交并 push：`540573d` — Health 模块（health + JWT stats）、CONTEXT、`scripts/test-health-stats.ps1`。 |
 
 ## NestJS 手写练习（学习轨）
 
