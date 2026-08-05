@@ -15,6 +15,7 @@ import { SettingsModule } from './settings/settings.module';
 import { WorktimeModule } from './worktime/worktime.module';
 import { SysParamsModule } from './sys-params/sys-params.module';
 import { SeedModule } from './seed/seed.module';
+import { HealthModule } from './health/health.module';
 
 ensureDataDirs();
 
@@ -36,6 +37,7 @@ ensureDataDirs();
     WorktimeModule,
     SysParamsModule,
     SeedModule,
+    HealthModule,
   ],
 })
 export class AppModule {}

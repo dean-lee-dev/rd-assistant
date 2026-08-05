@@ -1,7 +1,7 @@
 # 个人研发效能助手 — 跨对话上下文
 
 > **给后续 Agent / 新对话**：开场先读本文件，再读 `docs/10001/技术方案.md`；若要对照代码消化全系统，读 [系统消化文档.md](./10001/系统消化文档.md)。  
-> **维护约定**：每次对话只要产生需求变更、技术决策、实现进度或待办变化，必须在结束前更新本文件（追加「变更日志」并改「当前状态」）。
+> **维护约定**：每次对话只要产生需求变更、技术决策、实现进度、学习练习或待办变化，必须在结束前更新本文件（追加「变更日志」并改相关小节）。用户明确要求：**每次互动都要提炼进 CONTEXT**。
 
 ## 项目标识
 
@@ -204,9 +204,44 @@ sql.js → PG（连 `synchronize` 关闭 + 初始 migration 一起做）、`/upl
 | 2026-07-29 16:34 | P0 四项修改的风险评估（仍未改代码）：查证 `SqljsQueryRunner` 源码确认事务方案安全可行，并为四项补「实现约束/陷阱/验证方式」。建议拆四个独立提交，改事务前备份 sqlite。 |
 | 2026-07-29 17:58 | **上线改动全部落地并本地验证**：paths 环境化 + 密钥生产强制（缺失 exit 1）、前端相对路径 + dev proxy（5173 代理 401 通过）、上传 limits + multer 中文错误、导入事务 + 失败清图；新增 Dockerfile×2 / compose / nginx.conf / .dockerignore / .env.example；README 补部署章节与数据目录纠正。前后端生产构建均通过。**剩余需在服务器上做：certbot 证书、`htpasswd` 生成、`.env` 填值。** |
 | 2026-07-29 17:35 | **决策：即将上云**（单云主机 + Docker Compose + nginx，后期上 PG）。风险模型重排：新增「上线改动清单（收窄版）」——nginx 整站 Basic Auth 兜住多数安全项；必须改代码仅 3 项（数据目录环境化 / 前端相对路径 + dev proxy / 密钥生产强制）；CORS 因 dev proxy 转同源而免改。新发现运行数据实际在 `apps/data/` 而非文档所写 `data/`（挂错卷会静默丢数据）。 |
+| 2026-08-05 15:32 | **学习计划**：用户开始手写 NestJS；约定每次互动都提炼进 CONTEXT。首个练习需求定为「健康检查 Health 模块」（见下方「NestJS 手写练习」），当前仅提需求、未实现。 |
+| 2026-08-05 17:07 | 练习 1 代码已写：`HealthController` + `HealthModule`（文件名 `healty.module.ts`）已挂 `AppModule`。终端在跑 `npm run start`（非 watch）→ 改代码需**手动重启**；学习期建议 `npm run start:dev`。 |
+| 2026-08-05 17:09 | 练习 1 **验收通过**（Network 见 `GET health` → `{ ok, service, time }`）。用户反馈太简单；已开练习 2 需求（只读查库）。 |
+| 2026-08-05 18:03 | 练习 2 进行中：已有 `HealthService.getStatsSummary` + `GET /api/health/stats/summary`（JWT 暂注释；Controller 里先 `return {a:111}` 短路）。用户问「总是跳转到系统中」——多为在 **5173 前端地址**测 API，被 Angular SPA 吃掉路由进业务壳；应打 **3000** 或用 curl/Apifox。 |
+| 2026-08-05 18:17 | 练习 2：服务端 console 已打出统计，但 **Apifox Web** 看不到响应。根因高度可疑：`main.ts` CORS 仅放行 `5173`，浏览器里的 Apifox 跨域读不到 body（请求其实已进 Nest）。建议改用 Apifox 桌面版 / curl，或临时扩大 CORS。接口已加 JWT Guard。 |
+| 2026-08-05 18:27 | Apifox 打 `5173/api/health/stats/summary` 带 Authorization 仍 **401**。排查：Header 拼写无误；优先改打 **3000** 排除 proxy；重新 `POST /api/auth/login` 换新 `accessToken`；清掉无关 Cookie/`If-None-Match`；看本次请求是否还有 `getStatsSummary` 日志（无日志=Guard 拒掉）。 |
+| 2026-08-05 18:31 | 仍 401（已改 3000）：截图显示 `Authorization` 值只有 JWT，**缺少 `Bearer ` 前缀**。本项目 `JwtStrategy` 用 `fromAuthHeaderAsBearerToken()`，必须是 `Bearer <token>`。 |
+| 2026-08-05 18:32 | 已加 Bearer 仍 401。高度可疑：Token 不是本项目 `POST /api/auth/login` 签发的（Apifox 残留 `vue_admin_template_token`）。签名密钥不一致 → Passport 统一返回 Unauthorized。下一步：现场重新 login 取 `accessToken` 再测；或临时去掉 Guard 验证业务代码。 |
+| 2026-08-05 18:35 | 本机脚本验证：新鲜 login + `Bearer` → stats **200**（业务已通）。用户 Apifox 仍不通 → 配置问题。常见坑：Auth 选 Bearer 后又在 Header 手写 `Bearer` 变成双前缀；或 Token 非本项目签发。新增 `scripts/test-health-stats.ps1` 自检。 |
+| 2026-08-05 18:37 | Apifox 已通；完成练习 1+2 **代码 review**。主路径正确；待清理：文件名 `healty`、无用 import、`console.log`、health `time` 写死、`aiConfigured` 未排除空串。练习 2 标完成。 |
+| 2026-08-05 18:47 | 用户问 P2：`aiConfigured` 可否兼容 null/空串等。答：可以；推荐查出后用 JS 判断 trim 非空，或 DB 层排除 null+空串（注意仅空格需应用层 trim）。 |
+| 2026-08-05 18:50 | 用户追问：若 `ai_settings` 只有一条且 `id !== 1`。答：不要写死 `id: 1`；用 `find({ take: 1 })` 或查「任意 apiKey trim 非空」更稳。本项目 `AiService.getSetting` 虽偏好 id=1，但练习统计接口不必绑死。 |
+| 2026-08-05 18:51 | 用户追问多行时 `take:1` 是否够用。答：单行表才适合 take1；多行要先定业务语义——任一有效 Key / 指定 id / 最新一条，再用 `some` 或对应 where，不能瞎 take1。 |
+| 2026-08-05 18:52 | 用户问 P3 文件名拼写在哪：`apps/api/src/health/healty.module.ts`（少字母 h），`app.module.ts` 第 18 行 import 也指向该文件。 |
+| 2026-08-05 18:54 | 用户问错拼文件名为何不报错：import 路径与磁盘文件名一致即可；类名 `HealthModule` 与文件名无强制校验。已改为 `health.module.ts`。 |
+
+## NestJS 手写练习（学习轨）
+
+> 目的：在现有 `apps/api` 上亲手写代码学 Nest，不另起仓库。  
+> 约定：Agent **只先给需求**；用户自己实现；卡住再问。每次进度必须回写本文件。
+
+### 练习 1 — 健康检查 ✅ 已完成
+
+- `GET /api/health` 未登录可访问。
+
+### 练习 2 — 只读查库 ✅ 已完成
+
+- `GET /api/health/stats/summary` + JWT Guard；`HealthService` 多表 count。
+- Review 待改点见上条变更日志（不阻塞进入练习 3）。
+
+### 练习队列（未开需求，仅备忘）
+
+3. 带校验的写接口  
+4. 文件上传小练习  
+5. SSE（最后）
 
 ## 下一对话建议开场动作
 
-1. 读本文件 + 技术方案；深入读代码时打开系统消化文档。  
-2. 若要增强：真实图1/图3 Excel 联调、AI Key 联调、改密、PG 迁移等。  
-3. 本地启动见 README 双终端命令。
+1. 用户可先按 review 小清理，或直接要练习 3 需求。  
+2. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
+3. 学习期优先 `npm run start:dev`。
