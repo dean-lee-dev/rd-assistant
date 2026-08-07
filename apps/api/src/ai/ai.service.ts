@@ -1,11 +1,16 @@
 import { Injectable, BadRequestException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
-import { AiSetting } from '../entities';
+import { PrismaService } from '../prisma/prisma.service';
 
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant';
   content: string;
+}
+
+export interface ChatStreamOptions {
+  temperature?: number;
+  maxTokens?: number;
+  /** DeepSeek V4 等：关闭 thinking，避免短 max_tokens 被推理占满导致 content 为空 */
+  disableThinking?: boolean;
 }
 
 interface TokenUsage {
@@ -16,15 +21,13 @@ interface TokenUsage {
 
 @Injectable()
 export class AiService {
-  constructor(
-    @InjectRepository(AiSetting) private readonly settings: Repository<AiSetting>,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async getSetting() {
-    let row = await this.settings.findOne({ where: { id: 1 } });
+    let row = await this.prisma.aiSetting.findUnique({ where: { id: 1 } });
     if (!row) {
-      row = await this.settings.save(
-        this.settings.create({
+      row = await this.prisma.aiSetting.create({
+        data: {
           provider: 'deepseek',
           baseUrl: 'https://api.deepseek.com',
           model: 'deepseek-v4-flash',
@@ -37,8 +40,8 @@ export class AiService {
           lastCompletionTokens: 0,
           lastTotalTokens: 0,
           usageUpdatedAt: null,
-        }),
-      );
+        },
+      });
     }
     return row;
   }
@@ -71,67 +74,86 @@ export class AiService {
     apiKey?: string;
   }) {
     const s = await this.getSetting();
-    if (input.provider != null) s.provider = input.provider;
-    if (input.baseUrl != null) s.baseUrl = input.baseUrl.replace(/\/$/, '');
-    if (input.model != null) s.model = input.model;
-    if (input.apiKey != null && input.apiKey.trim() !== '') {
-      s.apiKey = input.apiKey.trim();
-    }
-    await this.settings.save(s);
+    await this.prisma.aiSetting.update({
+      where: { id: s.id },
+      data: {
+        provider: input.provider ?? s.provider,
+        baseUrl:
+          input.baseUrl != null ? input.baseUrl.replace(/\/$/, '') : s.baseUrl,
+        model: input.model ?? s.model,
+        apiKey:
+          input.apiKey != null && input.apiKey.trim() !== ''
+            ? input.apiKey.trim()
+            : s.apiKey,
+      },
+    });
     return this.getPublicSetting();
   }
 
   async resetUsage() {
     const s = await this.getSetting();
-    s.promptTokensTotal = 0;
-    s.completionTokensTotal = 0;
-    s.totalTokensTotal = 0;
-    s.requestCount = 0;
-    s.lastPromptTokens = 0;
-    s.lastCompletionTokens = 0;
-    s.lastTotalTokens = 0;
-    s.usageUpdatedAt = null;
-    await this.settings.save(s);
+    await this.prisma.aiSetting.update({
+      where: { id: s.id },
+      data: {
+        promptTokensTotal: 0,
+        completionTokensTotal: 0,
+        totalTokensTotal: 0,
+        requestCount: 0,
+        lastPromptTokens: 0,
+        lastCompletionTokens: 0,
+        lastTotalTokens: 0,
+        usageUpdatedAt: null,
+      },
+    });
     return this.getPublicSetting();
   }
 
   async testConnection() {
+    // deepseek-v4-* 默认开 thinking：过小的 max_tokens 会被推理占满，content 为空
     const reply = await this.chat(
       [{ role: 'user', content: '请只回复：ok' }],
-      { temperature: 0, maxTokens: 16 },
+      { temperature: 0, maxTokens: 64, disableThinking: true },
     );
     return { ok: true, reply: reply.slice(0, 200), ...(await this.getPublicSetting()) };
   }
 
   async chat(
     messages: ChatMessage[],
-    opts?: { temperature?: number; maxTokens?: number },
+    opts?: ChatStreamOptions,
   ): Promise<string> {
     let full = '';
     for await (const chunk of this.chatStream(messages, opts)) {
       full += chunk;
     }
-    if (!full) throw new BadRequestException('AI 返回为空');
+    if (!full) {
+      throw new BadRequestException(
+        'AI 返回为空（若使用 deepseek-v4，可能是 thinking 占满了 max_tokens，请增大上限或关闭思考）',
+      );
+    }
     return full;
   }
 
   /** OpenAI 兼容流式输出，逐段 yield 文本 delta；并累计 usage */
   async *chatStream(
     messages: ChatMessage[],
-    opts?: { temperature?: number; maxTokens?: number },
+    opts?: ChatStreamOptions,
   ): AsyncGenerator<string> {
     const s = await this.getSetting();
     if (!s.apiKey) {
       throw new BadRequestException('未配置 AI API Key，请先在系统配置中填写');
     }
     const url = `${s.baseUrl.replace(/\/$/, '')}/v1/chat/completions`;
-    const payloadBase = {
+    const payloadBase: Record<string, unknown> = {
       model: s.model,
       messages,
       temperature: opts?.temperature ?? 0.3,
       max_tokens: opts?.maxTokens ?? 4096,
       stream: true,
     };
+    // DeepSeek V4：thinking 默认开启；短请求需显式关闭，否则易 content 为空
+    if (opts?.disableThinking) {
+      payloadBase.thinking = { type: 'disabled' };
+    }
     let res = await fetch(url, {
       method: 'POST',
       headers: {
@@ -209,15 +231,19 @@ export class AiService {
     if (!prompt && !completion && !total) return;
 
     const s = await this.getSetting();
-    s.promptTokensTotal = (s.promptTokensTotal || 0) + prompt;
-    s.completionTokensTotal = (s.completionTokensTotal || 0) + completion;
-    s.totalTokensTotal = (s.totalTokensTotal || 0) + total;
-    s.requestCount = (s.requestCount || 0) + 1;
-    s.lastPromptTokens = prompt;
-    s.lastCompletionTokens = completion;
-    s.lastTotalTokens = total;
-    s.usageUpdatedAt = new Date();
-    await this.settings.save(s);
+    await this.prisma.aiSetting.update({
+      where: { id: s.id },
+      data: {
+        promptTokensTotal: (s.promptTokensTotal || 0) + prompt,
+        completionTokensTotal: (s.completionTokensTotal || 0) + completion,
+        totalTokensTotal: (s.totalTokensTotal || 0) + total,
+        requestCount: (s.requestCount || 0) + 1,
+        lastPromptTokens: prompt,
+        lastCompletionTokens: completion,
+        lastTotalTokens: total,
+        usageUpdatedAt: new Date(),
+      },
+    });
   }
 }
 

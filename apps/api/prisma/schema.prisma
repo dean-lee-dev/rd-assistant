@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  username     String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  @@map("users")
+}
+
+model AiSetting {
+  id                     Int       @id @default(autoincrement())
+  provider               String    @default("deepseek")
+  baseUrl                String    @default("https://api.deepseek.com")
+  model                  String    @default("deepseek-v4-flash")
+  apiKey                 String?
+  promptTokensTotal      Int       @default(0)
+  completionTokensTotal  Int       @default(0)
+  totalTokensTotal       Int       @default(0)
+  requestCount           Int       @default(0)
+  lastPromptTokens       Int       @default(0)
+  lastCompletionTokens   Int       @default(0)
+  lastTotalTokens        Int       @default(0)
+  usageUpdatedAt         DateTime?
+  updatedAt              DateTime  @updatedAt
+
+  @@map("ai_settings")
+}
+
+model WorktimeImport {
+  id         Int      @id @default(autoincrement())
+  fileName   String
+  records    Json
+  columnMap  Json?
+  rowCount   Int      @default(0)
+  createdAt  DateTime @default(now())
+
+  @@map("worktime_imports")
+}
+
+model WeeklyReport {
+  id           Int      @id @default(autoincrement())
+  importId     Int?
+  content      Json
+  aiUsed       Boolean  @default(false)
+  aiError      String?
+  chatMessages Json?
+  updatedAt    DateTime @updatedAt
+  createdAt    DateTime @default(now())
+
+  @@map("weekly_reports")
+}
+
+model SysParam {
+  id             Int      @id @default(autoincrement())
+  excelRowNo     Int
+  configName     String?
+  configKey      String?
+  module         String?
+  comment        String?
+  backendService String?
+  raw            Json
+  imagePaths     Json?
+  createdAt      DateTime @default(now())
+
+  @@map("sys_params")
+}
+
+model SysParamAiState {
+  id               Int      @id @default(autoincrement())
+  scope            String   @default("all")
+  selectedIds      Json?
+  analysisMarkdown String?
+  chatMessages     Json?
+  updatedAt        DateTime @updatedAt
+
+  @@map("sys_param_ai_state")
+}
+
+model Note {
+  id        Int      @id @default(autoincrement())
+  title     String
+  content   String?
+  createdAt DateTime @default(now())
+
+  @@map("note")
+}

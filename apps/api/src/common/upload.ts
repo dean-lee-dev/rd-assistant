@@ -1,5 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
-import type { MulterOptions } from '@nestjs/platform-express/multer/interfaces/multer-options.interface';
+import '@fastify/multipart'; // 挂上 FastifyRequest.file 类型扩展
+import type { FastifyRequest } from 'fastify';
 import { decodeMulterFilename } from './filename';
 
 /** Excel 上传大小上限：带内嵌图的参数表可达数十 MB。 */
@@ -8,18 +9,40 @@ export const MAX_EXCEL_UPLOAD_BYTES = 50 * 1024 * 1024;
 /** 上限的 MB 表示，用于错误提示。 */
 export const MAX_EXCEL_UPLOAD_MB = Math.round(MAX_EXCEL_UPLOAD_BYTES / 1024 / 1024);
 
+/** 内存中的上传文件（Fastify multipart → buffer） */
+export interface UploadedExcelFile {
+  buffer: Buffer;
+  originalname: string;
+  mimetype?: string;
+  size: number;
+}
+
 /**
- * Excel 上传的 Multer 配置：限制大小与扩展名。
- * 扩展名在 `decodeMulterFilename` 之后判断，避免中文名按 latin1 解读时误判。
+ * 从 Fastify multipart 读取名为 `file` 的字段，校验 .xlsx 与大小。
  */
-export const EXCEL_UPLOAD_OPTIONS: MulterOptions = {
-  limits: { fileSize: MAX_EXCEL_UPLOAD_BYTES },
-  fileFilter: (_req, file, callback) => {
-    const name = decodeMulterFilename(file.originalname).toLowerCase();
-    if (name.endsWith('.xlsx')) {
-      callback(null, true);
-      return;
-    }
-    callback(new BadRequestException('仅支持 .xlsx 文件'), false);
-  },
-};
+export async function readExcelUpload(req: FastifyRequest): Promise<UploadedExcelFile> {
+  const data = await req.file();
+  if (!data) {
+    throw new BadRequestException('请上传 Excel 文件');
+  }
+  const originalname = decodeMulterFilename(data.filename || 'upload.xlsx');
+  const lower = originalname.toLowerCase();
+  if (!lower.endsWith('.xlsx')) {
+    throw new BadRequestException('仅支持 .xlsx 文件');
+  }
+  const buffer = await data.toBuffer();
+  if (!buffer.length) {
+    throw new BadRequestException('请上传 Excel 文件');
+  }
+  if (buffer.length > MAX_EXCEL_UPLOAD_BYTES) {
+    throw new BadRequestException(
+      `文件超过 ${MAX_EXCEL_UPLOAD_MB}MB 上限，请拆分后再导入`,
+    );
+  }
+  return {
+    buffer,
+    originalname,
+    mimetype: data.mimetype,
+    size: buffer.length,
+  };
+}

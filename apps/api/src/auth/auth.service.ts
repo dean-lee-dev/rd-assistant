@@ -1,19 +1,17 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
-import { User } from '../entities';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class AuthService {
   constructor(
-    @InjectRepository(User) private readonly users: Repository<User>,
+    private readonly prisma: PrismaService,
     private readonly jwt: JwtService,
   ) {}
 
   async login(username: string, password: string) {
-    const user = await this.users.findOne({ where: { username } });
+    const user = await this.prisma.user.findUnique({ where: { username } });
     if (!user || !(await bcrypt.compare(password, user.passwordHash))) {
       throw new UnauthorizedException('用户名或密码错误');
     }
@@ -28,7 +26,7 @@ export class AuthService {
   }
 
   async me(userId: number) {
-    const user = await this.users.findOne({ where: { id: userId } });
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
     if (!user) throw new UnauthorizedException();
     return { id: user.id, username: user.username };
   }

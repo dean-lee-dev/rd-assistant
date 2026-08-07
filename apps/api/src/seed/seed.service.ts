@@ -1,35 +1,30 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
-import { AiSetting, User } from '../entities';
 import { DEFAULT_ADMIN_PASS, DEFAULT_ADMIN_USER } from '../common/paths';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class SeedService implements OnModuleInit {
-  constructor(
-    @InjectRepository(User) private readonly users: Repository<User>,
-    @InjectRepository(AiSetting) private readonly aiSettings: Repository<AiSetting>,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   async onModuleInit() {
-    const count = await this.users.count();
+    const count = await this.prisma.user.count();
     if (count === 0) {
       const passwordHash = await bcrypt.hash(DEFAULT_ADMIN_PASS, 10);
-      await this.users.save(
-        this.users.create({ username: DEFAULT_ADMIN_USER, passwordHash }),
-      );
+      await this.prisma.user.create({
+        data: { username: DEFAULT_ADMIN_USER, passwordHash },
+      });
     }
-    const aiCount = await this.aiSettings.count();
+    const aiCount = await this.prisma.aiSetting.count();
     if (aiCount === 0) {
-      await this.aiSettings.save(
-        this.aiSettings.create({
+      await this.prisma.aiSetting.create({
+        data: {
           provider: 'deepseek',
           baseUrl: 'https://api.deepseek.com',
           model: 'deepseek-v4-flash',
           apiKey: null,
-        }),
-      );
+        },
+      });
     }
   }
 }

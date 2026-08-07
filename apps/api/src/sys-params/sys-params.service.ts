@@ -1,11 +1,10 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, Repository } from 'typeorm';
+import { Prisma } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
 import { writeFileSync, mkdirSync, existsSync, rmSync } from 'fs';
 import { join } from 'path';
 import { randomUUID } from 'crypto';
-import { SysParam, SysParamAiState, SysParamChatTurn } from '../entities';
+import type { SysParamChatTurn } from '../types/domain';
 import { AiService } from '../ai/ai.service';
 import { UPLOADS_DIR } from '../common/paths';
 import {
@@ -13,18 +12,30 @@ import {
   buildColumnMap,
   cellToString,
 } from '../common/excel-map';
+import { PrismaService } from '../prisma/prisma.service';
+import type { UploadedExcelFile } from '../common/upload';
+
+type SysParamRow = {
+  id: number;
+  excelRowNo: number;
+  configName: string | null;
+  configKey: string | null;
+  module: string | null;
+  comment: string | null;
+  backendService: string | null;
+  raw: Prisma.JsonValue;
+  imagePaths: Prisma.JsonValue;
+  createdAt: Date;
+};
 
 @Injectable()
 export class SysParamsService {
   constructor(
-    @InjectRepository(SysParam) private readonly params: Repository<SysParam>,
-    @InjectRepository(SysParamAiState)
-    private readonly aiState: Repository<SysParamAiState>,
-    private readonly dataSource: DataSource,
+    private readonly prisma: PrismaService,
     private readonly ai: AiService,
   ) {}
 
-  async importExcel(file: Express.Multer.File) {
+  async importExcel(file: UploadedExcelFile) {
     if (!file?.buffer?.length) throw new BadRequestException('请上传 Excel 文件');
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(file.buffer as unknown as ExcelJS.Buffer);
@@ -44,7 +55,7 @@ export class SysParamsService {
     const dir = join(UPLOADS_DIR, 'sys-params', randomUUID());
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
 
-    const rows: Partial<SysParam>[] = [];
+    const rows: Prisma.SysParamCreateManyInput[] = [];
     sheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
       if (rowNumber === 1) return;
       // skip fully empty rows
@@ -55,7 +66,7 @@ export class SysParamsService {
         raw[h] = val;
         if (val) empty = false;
       });
-      if (empty && !(imageMap.get(rowNumber)?.length)) return;
+      if (empty && !imageMap.get(rowNumber)?.length) return;
 
       const imgs = imageMap.get(rowNumber) || [];
       const imagePaths: string[] = [];
@@ -63,7 +74,9 @@ export class SysParamsService {
         const name = `r${rowNumber}_${idx}.${img.ext}`;
         const abs = join(dir, name);
         writeFileSync(abs, img.buffer);
-        imagePaths.push(join('sys-params', dir.split(/[/\\]/).pop()!, name).replace(/\\/g, '/'));
+        imagePaths.push(
+          join('sys-params', dir.split(/[/\\]/).pop()!, name).replace(/\\/g, '/'),
+        );
       });
 
       rows.push({
@@ -73,20 +86,20 @@ export class SysParamsService {
         module: strOrNull(pickField(raw, headers, colMap, 'module')),
         comment: strOrNull(pickField(raw, headers, colMap, 'comment')),
         backendService: strOrNull(pickField(raw, headers, colMap, 'backendService')),
-        raw,
-        imagePaths,
+        raw: raw as Prisma.InputJsonValue,
+        imagePaths: imagePaths as Prisma.InputJsonValue,
       });
     });
 
-    // 必须使用事务的 EntityManager：注入的 repository 会走独立 queryRunner，
-    // 脱离事务并立即落盘，导致「清表成功、写入失败」时旧数据不可恢复。
+    // 事务内清表 + 批量写入；失败回滚后清理本次图片目录
     try {
-      await this.dataSource.transaction(async (manager) => {
-        await manager.clear(SysParam);
-        await manager.save(rows.map((r) => manager.create(SysParam, r)));
+      await this.prisma.$transaction(async (tx) => {
+        await tx.sysParam.deleteMany();
+        if (rows.length) {
+          await tx.sysParam.createMany({ data: rows });
+        }
       });
     } catch (e) {
-      // 事务已回滚、旧数据保留；本次已落盘的图片需清理，否则留下孤儿目录
       rmSync(dir, { recursive: true, force: true });
       throw e;
     }
@@ -101,7 +114,9 @@ export class SysParamsService {
   }
 
   async list(q?: string, module?: string) {
-    let items = await this.params.find({ order: { excelRowNo: 'ASC' } });
+    let items = await this.prisma.sysParam.findMany({
+      orderBy: { excelRowNo: 'asc' },
+    });
     if (module) {
       items = items.filter((i) => (i.module || '') === module);
     }
@@ -127,19 +142,22 @@ export class SysParamsService {
 
   async detail(id: number) {
     try {
-      const row = await this.params.findOne({ where: { id } });
+      const row = await this.prisma.sysParam.findUnique({ where: { id } });
       if (!row) throw new NotFoundException();
       let imageUrls: string[] = [];
       try {
-        imageUrls = (row.imagePaths || [])
-          .filter((p): p is string => typeof p === 'string' && !!p)
+        imageUrls = asStringArray(row.imagePaths)
+          .filter((p) => !!p)
           .map((p) => `/uploads/${p}`);
       } catch {
         imageUrls = [];
       }
       let raw: Record<string, unknown> = {};
       try {
-        raw = row.raw && typeof row.raw === 'object' ? { ...row.raw } : {};
+        raw =
+          row.raw && typeof row.raw === 'object' && !Array.isArray(row.raw)
+            ? { ...(row.raw as Record<string, unknown>) }
+            : {};
       } catch {
         raw = { 原始字段: '解析失败' };
       }
@@ -164,7 +182,7 @@ export class SysParamsService {
   }
 
   async moduleStats() {
-    const all = await this.params.find();
+    const all = await this.prisma.sysParam.findMany();
     const map = new Map<string, number>();
     for (const r of all) {
       const m = r.module || '(空模块)';
@@ -179,9 +197,9 @@ export class SysParamsService {
     const state = await this.ensureAiState();
     return {
       scope: state.scope,
-      selectedIds: state.selectedIds || [],
+      selectedIds: asNumberArray(state.selectedIds),
       analysisMarkdown: state.analysisMarkdown || '',
-      chatMessages: state.chatMessages || [],
+      chatMessages: asChatTurns(state.chatMessages),
       updatedAt: state.updatedAt,
     };
   }
@@ -235,10 +253,17 @@ export class SysParamsService {
     }
 
     const state = await this.ensureAiState();
-    state.scope = prepared.scope;
-    state.selectedIds = prepared.scope === 'selected' ? prepared.selectedIds : [];
-    state.analysisMarkdown = markdown;
-    await this.aiState.save(state);
+    await this.prisma.sysParamAiState.update({
+      where: { id: state.id },
+      data: {
+        scope: prepared.scope,
+        selectedIds:
+          prepared.scope === 'selected'
+            ? (prepared.selectedIds as Prisma.InputJsonValue)
+            : ([] as Prisma.InputJsonValue),
+        analysisMarkdown: markdown,
+      },
+    });
     yield { type: 'done', markdown };
   }
 
@@ -260,9 +285,11 @@ export class SysParamsService {
     if (!text) throw new BadRequestException('请输入消息');
 
     const state = await this.ensureAiState();
-    const history: SysParamChatTurn[] = [...(state.chatMessages || [])];
-    const all = await this.params.find({ order: { excelRowNo: 'ASC' } });
-    const selectedIds = state.selectedIds || [];
+    const history: SysParamChatTurn[] = [...asChatTurns(state.chatMessages)];
+    const all = await this.prisma.sysParam.findMany({
+      orderBy: { excelRowNo: 'asc' },
+    });
+    const selectedIds = asNumberArray(state.selectedIds);
     const contextRows =
       state.scope === 'selected' && selectedIds.length
         ? all.filter((r) => selectedIds.includes(r.id))
@@ -307,20 +334,27 @@ export class SysParamsService {
     const now = new Date().toISOString();
     history.push({ role: 'user', content: text, at: now });
     history.push({ role: 'assistant', content: reply, at: now });
-    state.chatMessages = history.slice(-40);
-    await this.aiState.save(state);
-    yield { type: 'done', chatMessages: state.chatMessages };
+    const chatMessages = history.slice(-40);
+    await this.prisma.sysParamAiState.update({
+      where: { id: state.id },
+      data: { chatMessages: chatMessages as unknown as Prisma.InputJsonValue },
+    });
+    yield { type: 'done', chatMessages };
   }
 
   async clearChat() {
     const state = await this.ensureAiState();
-    state.chatMessages = [];
-    await this.aiState.save(state);
+    await this.prisma.sysParamAiState.update({
+      where: { id: state.id },
+      data: { chatMessages: [] as Prisma.InputJsonValue },
+    });
     return { chatMessages: [] };
   }
 
   private async prepareAnalyze(ids?: number[]) {
-    const all = await this.params.find({ order: { excelRowNo: 'ASC' } });
+    const all = await this.prisma.sysParam.findMany({
+      orderBy: { excelRowNo: 'asc' },
+    });
     if (!all.length) throw new BadRequestException('暂无参数数据，请先上传 Excel');
 
     const selectedIds = Array.isArray(ids)
@@ -369,21 +403,37 @@ ${JSON.stringify(payload)}`;
     };
   }
 
-  private async ensureAiState(): Promise<SysParamAiState> {
-    const existing = await this.aiState.find({ take: 1, order: { id: 'ASC' } });
-    if (existing[0]) return existing[0];
-    return this.aiState.save(
-      this.aiState.create({
+  private async ensureAiState() {
+    const existing = await this.prisma.sysParamAiState.findFirst({
+      orderBy: { id: 'asc' },
+    });
+    if (existing) return existing;
+    return this.prisma.sysParamAiState.create({
+      data: {
         scope: 'all',
-        selectedIds: [],
+        selectedIds: [] as Prisma.InputJsonValue,
         analysisMarkdown: '',
-        chatMessages: [],
-      }),
-    );
+        chatMessages: [] as Prisma.InputJsonValue,
+      },
+    });
   }
 }
 
-function toFullRow(r: SysParam) {
+function asStringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
+
+function asNumberArray(value: unknown): number[] {
+  return Array.isArray(value)
+    ? value.map((n) => Number(n)).filter((n) => Number.isFinite(n))
+    : [];
+}
+
+function asChatTurns(value: unknown): SysParamChatTurn[] {
+  return Array.isArray(value) ? (value as SysParamChatTurn[]) : [];
+}
+
+function toFullRow(r: SysParamRow) {
   return {
     id: r.id,
     excelRowNo: r.excelRowNo,
@@ -392,12 +442,12 @@ function toFullRow(r: SysParam) {
     module: r.module,
     comment: r.comment,
     backendService: r.backendService,
-    hasImage: Boolean(r.imagePaths?.length),
-    raw: r.raw && typeof r.raw === 'object' ? r.raw : {},
+    hasImage: Boolean(asStringArray(r.imagePaths).length),
+    raw: r.raw && typeof r.raw === 'object' && !Array.isArray(r.raw) ? r.raw : {},
   };
 }
 
-function summarize(r: SysParam) {
+function summarize(r: SysParamRow) {
   return {
     id: r.id,
     excelRowNo: r.excelRowNo,
@@ -406,7 +456,7 @@ function summarize(r: SysParam) {
     module: r.module,
     comment: r.comment,
     backendService: r.backendService,
-    hasImage: Boolean(r.imagePaths?.length),
+    hasImage: Boolean(asStringArray(r.imagePaths).length),
   };
 }
 

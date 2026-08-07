@@ -7,17 +7,15 @@ import {
   ParseIntPipe,
   Post,
   Put,
+  Req,
   Res,
-  UploadedFile,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { FileInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
-import { WeeklyReportContent } from '../entities';
+import type { FastifyReply, FastifyRequest } from 'fastify';
+import type { WeeklyReportContent } from '../types/domain';
 import { endSse, initSse, writeSse } from '../common/sse';
-import { EXCEL_UPLOAD_OPTIONS } from '../common/upload';
+import { readExcelUpload } from '../common/upload';
 import { WorktimeService } from './worktime.service';
 
 function sseErrorMessage(e: unknown, fallback: string): string {
@@ -40,8 +38,8 @@ export class WorktimeController {
   constructor(private readonly worktime: WorktimeService) {}
 
   @Post('import')
-  @UseInterceptors(FileInterceptor('file', EXCEL_UPLOAD_OPTIONS))
-  import(@UploadedFile() file: Express.Multer.File) {
+  async import(@Req() req: FastifyRequest) {
+    const file = await readExcelUpload(req);
     return this.worktime.importExcel(file);
   }
 
@@ -75,17 +73,17 @@ export class WorktimeController {
   async chatStream(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { message: string },
-    @Res() res: Response,
+    @Res() reply: FastifyReply,
   ) {
-    initSse(res);
+    initSse(reply);
     try {
       for await (const ev of this.worktime.chatStream(id, body?.message || '')) {
-        writeSse(res, ev);
+        writeSse(reply, ev);
       }
-      endSse(res);
+      endSse(reply);
     } catch (e) {
-      writeSse(res, { type: 'error', message: sseErrorMessage(e, '对话失败') });
-      endSse(res);
+      writeSse(reply, { type: 'error', message: sseErrorMessage(e, '对话失败') });
+      endSse(reply);
     }
   }
 

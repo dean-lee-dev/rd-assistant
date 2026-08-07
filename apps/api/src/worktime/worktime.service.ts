@@ -1,13 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Prisma } from '@prisma/client';
 import * as ExcelJS from 'exceljs';
-import {
-  WeeklyReport,
-  WeeklyReportContent,
-  WeeklyReportTaskItem,
-  WorktimeImport,
-} from '../entities';
+import type { WeeklyReportContent, WeeklyReportTaskItem } from '../types/domain';
 import { AiService } from '../ai/ai.service';
 import { decodeMulterFilename } from '../common/filename';
 import {
@@ -18,18 +12,17 @@ import {
   parseDescriptionDetails,
   stripLeadingNumber,
 } from '../common/excel-map';
+import { PrismaService } from '../prisma/prisma.service';
+import type { UploadedExcelFile } from '../common/upload';
 
 @Injectable()
 export class WorktimeService {
   constructor(
-    @InjectRepository(WorktimeImport)
-    private readonly imports: Repository<WorktimeImport>,
-    @InjectRepository(WeeklyReport)
-    private readonly reports: Repository<WeeklyReport>,
+    private readonly prisma: PrismaService,
     private readonly ai: AiService,
   ) {}
 
-  async importExcel(file: Express.Multer.File) {
+  async importExcel(file: UploadedExcelFile) {
     if (!file?.buffer?.length) throw new BadRequestException('请上传 Excel 文件');
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.load(file.buffer as unknown as ExcelJS.Buffer);
@@ -74,16 +67,18 @@ export class WorktimeService {
       records.push(mapped);
     });
 
-    const entity = await this.imports.save(
-      this.imports.create({
-        fileName: decodeMulterFilename(file.originalname),
-        records,
-        columnMap: Object.fromEntries(
-          Object.entries(colMap).map(([k, v]) => [k, headers[v] || String(v)]),
-        ),
-        rowCount: records.length,
-      }),
+    const columnMap = Object.fromEntries(
+      Object.entries(colMap).map(([k, v]) => [k, headers[v] || String(v)]),
     );
+
+    const entity = await this.prisma.worktimeImport.create({
+      data: {
+        fileName: decodeMulterFilename(file.originalname),
+        records: records as Prisma.InputJsonValue,
+        columnMap: columnMap as Prisma.InputJsonValue,
+        rowCount: records.length,
+      },
+    });
 
     return {
       id: entity.id,
@@ -96,39 +91,43 @@ export class WorktimeService {
   }
 
   async latest() {
-    const imp = await this.imports.find({ order: { id: 'DESC' }, take: 1 });
-    const rep = await this.reports.find({ order: { id: 'DESC' }, take: 1 });
+    const imp = await this.prisma.worktimeImport.findFirst({
+      orderBy: { id: 'desc' },
+    });
+    const rep = await this.prisma.weeklyReport.findFirst({
+      orderBy: { id: 'desc' },
+    });
     return {
-      import: imp[0]
+      import: imp
         ? {
-            id: imp[0].id,
-            fileName: decodeMulterFilename(imp[0].fileName),
-            rowCount: imp[0].rowCount,
-            columnMap: imp[0].columnMap,
-            createdAt: imp[0].createdAt,
+            id: imp.id,
+            fileName: decodeMulterFilename(imp.fileName),
+            rowCount: imp.rowCount,
+            columnMap: imp.columnMap,
+            createdAt: imp.createdAt,
           }
         : null,
-      report: rep[0] || null,
+      report: rep || null,
     };
   }
 
   async generateReport(importId?: number) {
-    let imp: WorktimeImport | null = null;
+    let imp = null as Awaited<ReturnType<typeof this.prisma.worktimeImport.findUnique>>;
     if (importId) {
-      imp = await this.imports.findOne({ where: { id: importId } });
+      imp = await this.prisma.worktimeImport.findUnique({ where: { id: importId } });
     } else {
-      const list = await this.imports.find({ order: { id: 'DESC' }, take: 1 });
-      imp = list[0] || null;
+      imp = await this.prisma.worktimeImport.findFirst({ orderBy: { id: 'desc' } });
     }
     if (!imp) throw new NotFoundException('请先导入工时 Excel');
 
-    const ruleContent = aggregateByRules(imp.records);
+    const records = asRecordArray(imp.records);
+    const ruleContent = aggregateByRules(records);
     let content = withHtml(ruleContent);
     let aiUsed = false;
     let aiError: string | null = null;
 
     try {
-      const aiPart = await this.enrichWithAi(imp.records, ruleContent);
+      const aiPart = await this.enrichWithAi(records, ruleContent);
       const merged: WeeklyReportContent = {
         ...ruleContent,
         completedTasks: aiPart.completedTasks ?? ruleContent.completedTasks,
@@ -161,23 +160,24 @@ export class WorktimeService {
       });
     }
 
-    const saved = await this.reports.save(
-      this.reports.create({
+    return this.prisma.weeklyReport.create({
+      data: {
         importId: imp.id,
-        content,
+        content: content as unknown as Prisma.InputJsonValue,
         aiUsed,
         aiError,
-        chatMessages: [],
-      }),
-    );
-    return saved;
+        chatMessages: [] as Prisma.InputJsonValue,
+      },
+    });
   }
 
   async updateReport(id: number, content: WeeklyReportContent) {
-    const row = await this.reports.findOne({ where: { id } });
+    const row = await this.prisma.weeklyReport.findUnique({ where: { id } });
     if (!row) throw new NotFoundException('周报不存在');
-    row.content = content;
-    return this.reports.save(row);
+    return this.prisma.weeklyReport.update({
+      where: { id },
+      data: { content: content as unknown as Prisma.InputJsonValue },
+    });
   }
 
   async chat(reportId: number, message: string) {
@@ -202,23 +202,26 @@ export class WorktimeService {
   > {
     const text = (message || '').trim();
     if (!text) throw new BadRequestException('请输入消息');
-    const report = await this.reports.findOne({ where: { id: reportId } });
+    const report = await this.prisma.weeklyReport.findUnique({ where: { id: reportId } });
     if (!report) throw new NotFoundException('周报不存在');
 
     let importRecords: Record<string, unknown>[] = [];
     if (report.importId) {
-      const imp = await this.imports.findOne({ where: { id: report.importId } });
-      importRecords = imp?.records || [];
+      const imp = await this.prisma.worktimeImport.findUnique({
+        where: { id: report.importId },
+      });
+      importRecords = asRecordArray(imp?.records);
     }
 
-    const history = [...(report.chatMessages || [])];
+    const content = asWeeklyContent(report.content);
+    const history = asChatTurns(report.chatMessages);
     const system = [
       '你是个人研发效能助手中的周报分析顾问（ai小助手）。',
       '请基于用户本周周报汇总与工时明细回答问题，支持多轮沟通。',
       '回答用简洁中文 Markdown，必要时用条目列举；不要编造周报中不存在的任务号。',
       '',
       '【本周周报汇总】',
-      contentToMarkdown(report.content),
+      contentToMarkdown(content),
       '',
       '【工时明细摘要】',
       JSON.stringify(
@@ -254,16 +257,21 @@ export class WorktimeService {
     const now = new Date().toISOString();
     history.push({ role: 'user', content: text, at: now });
     history.push({ role: 'assistant', content: reply, at: now });
-    report.chatMessages = history.slice(-40);
-    await this.reports.save(report);
-    yield { type: 'done', chatMessages: report.chatMessages };
+    const chatMessages = history.slice(-40);
+    await this.prisma.weeklyReport.update({
+      where: { id: report.id },
+      data: { chatMessages: chatMessages as unknown as Prisma.InputJsonValue },
+    });
+    yield { type: 'done', chatMessages };
   }
 
   async clearChat(reportId: number) {
-    const report = await this.reports.findOne({ where: { id: reportId } });
+    const report = await this.prisma.weeklyReport.findUnique({ where: { id: reportId } });
     if (!report) throw new NotFoundException('周报不存在');
-    report.chatMessages = [];
-    await this.reports.save(report);
+    await this.prisma.weeklyReport.update({
+      where: { id: reportId },
+      data: { chatMessages: [] as Prisma.InputJsonValue },
+    });
     return { chatMessages: [] };
   }
 
@@ -271,10 +279,10 @@ export class WorktimeService {
     if (section !== 'completed' && section !== 'plan') {
       throw new BadRequestException('section 仅支持 completed 或 plan');
     }
-    const report = await this.reports.findOne({ where: { id: reportId } });
+    const report = await this.prisma.weeklyReport.findUnique({ where: { id: reportId } });
     if (!report) throw new NotFoundException('周报不存在');
 
-    const content = report.content || ({} as WeeklyReportContent);
+    const content = asWeeklyContent(report.content);
     const sourceHtml =
       section === 'completed'
         ? content.completedWorkHtml || ''
@@ -316,12 +324,14 @@ ${sourceHtml}`;
     } else {
       content.nextWeekPlanHtmlAi = html;
     }
-    report.content = content;
-    await this.reports.save(report);
+    const updated = await this.prisma.weeklyReport.update({
+      where: { id: reportId },
+      data: { content: content as unknown as Prisma.InputJsonValue },
+    });
     return {
       section,
       html,
-      content: report.content,
+      content: asWeeklyContent(updated.content),
     };
   }
 
@@ -358,6 +368,22 @@ ${JSON.stringify(compact)}`;
     ]);
     return parseJsonContent(raw);
   }
+}
+
+function asRecordArray(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? (value as Record<string, unknown>[]) : [];
+}
+
+function asWeeklyContent(value: unknown): WeeklyReportContent {
+  return (value && typeof value === 'object' ? value : {}) as WeeklyReportContent;
+}
+
+function asChatTurns(
+  value: unknown,
+): { role: 'user' | 'assistant'; content: string; at?: string }[] {
+  return Array.isArray(value)
+    ? (value as { role: 'user' | 'assistant'; content: string; at?: string }[])
+    : [];
 }
 
 function pick(
@@ -399,9 +425,7 @@ function aggregateByRules(records: Record<string, unknown>[]): WeeklyReportConte
 
     if (defect) {
       const parts = parseDescriptionDetails(description);
-      const lines = parts.length
-        ? parts
-        : [''];
+      const lines = parts.length ? parts : [''];
       for (const part of lines) {
         const detail = [taskId, taskTitle || requirementName, part]
           .filter(Boolean)
@@ -413,7 +437,8 @@ function aggregateByRules(records: Record<string, unknown>[]): WeeklyReportConte
     }
 
     const key = taskId || requirementName || `row-${r.excelRowNo}`;
-    const title = [taskId ? `#${taskId}` : '', requirementName].filter(Boolean).join(' ') ||
+    const title =
+      [taskId ? `#${taskId}` : '', requirementName].filter(Boolean).join(' ') ||
       `未命名任务`;
     let item = taskMap.get(key);
     if (!item) {

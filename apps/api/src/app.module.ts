@@ -1,16 +1,6 @@
 import { Module } from '@nestjs/common';
-import { TypeOrmModule } from '@nestjs/typeorm';
-import { ServeStaticModule } from '@nestjs/serve-static';
-import {
-  AiSetting,
-  SysParam,
-  SysParamAiState,
-  User,
-  WeeklyReport,
-  WorktimeImport,
-  Note
-} from './entities';
-import { ensureDataDirs, DB_FILE, UPLOADS_DIR } from './common/paths';
+import { ensureDataDirs } from './common/paths';
+import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { SettingsModule } from './settings/settings.module';
 import { WorktimeModule } from './worktime/worktime.module';
@@ -23,24 +13,14 @@ ensureDataDirs();
 
 @Module({
   imports: [
-    TypeOrmModule.forRoot({
-      type: 'sqljs',
-      location: DB_FILE,
-      autoSave: true,
-      entities: [User, AiSetting, WorktimeImport, WeeklyReport, SysParam, SysParamAiState, Note],
-      synchronize: true,
-    }),
-    ServeStaticModule.forRoot({
-      rootPath: UPLOADS_DIR,
-      serveRoot: '/uploads',
-    }),
+    PrismaModule,
     AuthModule,
     SettingsModule,
     WorktimeModule,
     SysParamsModule,
     SeedModule,
     HealthModule,
-    NotesModule
+    NotesModule,
   ],
 })
 export class AppModule {}

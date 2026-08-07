@@ -3,7 +3,7 @@
 本地个人工具：工时周报生成、系统参数配置可视化、AI 配置。
 
 - 前端：Angular 19.2 + ng-zorro（`apps/web`）
-- 后端：NestJS + TypeORM + sql.js（SQLite 文件，`apps/api`）
+- 后端：NestJS + **Fastify** + **Prisma**（SQLite 文件，`apps/api`）
 - 文档：[docs/CONTEXT.md](docs/CONTEXT.md) · [docs/10001/技术方案.md](docs/10001/技术方案.md) · [docs/10001/系统消化文档.md](docs/10001/系统消化文档.md)
 
 ## 环境
@@ -11,17 +11,20 @@
 - Node.js 20+
 - Windows / macOS / Linux 均可
 
-> 说明：本机若无 Visual Studio C++ 构建工具，后端使用 **sql.js**（纯 JS SQLite）而非 `better-sqlite3`。
+> 数据库为 Prisma 管理的 SQLite 文件（非 sql.js）。日后上云多实例再切 PostgreSQL；本机若装 PG，偏好目录 `D:\software\pg`。
 
 ## 安装
 
 ```bash
 cd apps/api
-npm install
+npm install          # postinstall 会 prisma generate
+# 可选：npm run db:migrate:dev
 
 cd ../web
 npm install
 ```
+
+本地 API 默认 `DATABASE_URL=file:../../data/assistant.prisma.sqlite`（见 `apps/api/.env` / 根目录 `.env.example`）。
 
 ## 启动
 
@@ -65,13 +68,16 @@ npm start
 
 ```text
 apps/data/
-  assistant.sqlite   # 自动生成
-  uploads/           # Excel 提取的图片等
+  assistant.prisma.sqlite   # Prisma SQLite（自动生成）
+  assistant.sqljs.bak       # 旧 sql.js 库备份（若曾迁移）
+  uploads/                  # Excel 提取的图片等
 data/
-  sample-worktime.xlsx   # 仅样例，非运行数据
+  sample-worktime.xlsx      # 仅样例，非运行数据
 ```
 
 可用 `DATA_DIR` 显式指定（容器部署即用此方式挂载持久卷）。上述文件默认 gitignore，勿提交真实 API Key。
+
+> 从 TypeORM/sql.js 迁到 Prisma 时**不自动迁移业务数据**；启动后仅 seed（admin + 默认 AI 配置），需重新导 Excel / 配 AI Key。
 
 ## 部署（单台云主机 + Docker Compose + nginx）
 
@@ -95,9 +101,11 @@ docker compose up -d --build
 
 `JWT_SECRET` / `ADMIN_PASS` 在 `NODE_ENV=production` 下缺失会**直接启动失败**，这是刻意设计，避免静默退回开发兜底密钥。
 
+容器启动前会执行 `prisma migrate deploy`；SQLite 文件落在 `DATA_DIR` 卷（`assistant.prisma.sqlite`）。
+
 ### 部署注意事项
 
-- **只能单实例。** sql.js 把整份数据库放在进程内存并全量覆写同一文件，两个进程同时写就是后写者赢、前者全丢。不要加 `replicas`，不要做新旧进程重叠的滚动发布；导入或 AI 分析进行中不要重启容器。
+- **建议单实例。** Prisma SQLite 对并发写仍偏单机友好；多实例请等迁 PostgreSQL。不要加 `replicas`；导入或长时间 AI 进行中尽量避免硬重启。
 - **Basic Auth 必须配合 HTTPS**：凭证只是 base64 编码。它同时保护了 `/uploads`（浏览器对 `<img>` 会自动附带同源 Basic 凭证），因此内部系统截图不会对公网裸奔。
 - **持久卷务必挂到 `DATA_DIR`（容器内 `/app/data`）**。若照旧文档挂仓库根的 `data/`，数据会留在容器可写层，`docker compose down` 即丢且全程不报错。
 - nginx 已配 `proxy_buffering off` 与 `proxy_read_timeout 600s`，缺任一项都会让 SSE 流式输出表现为「卡很久后一次性全部出现」或长分析被掐断。

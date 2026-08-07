@@ -36,9 +36,26 @@ export const DATA_DIR = process.env.DATA_DIR
   ? resolve(process.env.DATA_DIR)
   : join(ROOT_DIR, 'data');
 export const UPLOADS_DIR = join(DATA_DIR, 'uploads');
-export const DB_FILE = join(DATA_DIR, 'assistant.sqlite');
+/** Prisma SQLite 文件（相对 prisma/schema 的 DATABASE_URL 默认指向同路径） */
+export const DB_FILE = join(DATA_DIR, 'assistant.prisma.sqlite');
+
+/**
+ * 未显式配置时，把 DATABASE_URL 指到 DATA_DIR 下的 SQLite 文件。
+ * Prisma CLI 仍读 apps/api/.env；运行时 Nest 用此兜底，便于 Docker 设 DATA_DIR。
+ */
+export function ensureDatabaseUrl(): void {
+  if (!process.env.DATABASE_URL) {
+    // Prisma file URL：正斜杠；Windows 绝对路径需 file:///C:/...
+    const normalized = DB_FILE.replace(/\\/g, '/');
+    const url = normalized.startsWith('/')
+      ? `file:${normalized}`
+      : `file:///${normalized}`;
+    process.env.DATABASE_URL = url;
+  }
+}
 
 export function ensureDataDirs() {
+  ensureDatabaseUrl();
   for (const dir of [DATA_DIR, UPLOADS_DIR, join(UPLOADS_DIR, 'sys-params'), join(UPLOADS_DIR, 'worktime')]) {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   }

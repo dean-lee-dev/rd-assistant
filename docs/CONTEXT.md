@@ -15,7 +15,7 @@
 
 ## 一句话目标
 
-本地可运行的个人研发效能 Web：登录后，(1) 工时 Excel → AI 周报；(2) 配置洞察（参数 Excel → 可检索可视化表 + AI 分析/对话）；(3) AI/系统配置。Angular 19.2 + ng-zorro + NestJS + SQLite(sql.js)。
+本地可运行的个人研发效能 Web：登录后，(1) 工时 Excel → AI 周报；(2) 配置洞察（参数 Excel → 可检索可视化表 + AI 分析/对话）；(3) AI/系统配置。Angular 19.2 + ng-zorro + NestJS Fastify + Prisma SQLite。
 
 ## 已确认决策（勿再追问除非用户改口）
 
@@ -27,14 +27,14 @@
 6. 周报可编辑；复制富文本 + Markdown；AI 字段失败则空。
 7. 配置洞察（原系统参数）：物理行、空/重复 key、Excel 行号、全量覆盖、提图；AI 支持全量/多选整行分析 + 右侧对话；分析与对话均为 Markdown 预览 + SSE 流式。
 8. AI：DeepSeek 兼容协议，Key 存服务端；chat/completions 支持 stream。
-9. DB：sql.js 持久化到 **`apps/data/assistant.sqlite`**（因 Windows 缺 VS 未用 better-sqlite3）。
+9. DB：**Prisma + SQLite 文件** `apps/data/assistant.prisma.sqlite`（已弃用 sql.js/TypeORM；旧库备份为 `assistant.sqljs.bak`，**不自动迁业务数据**，启动仅 seed）。
 10. 文件本地存储。
 11. 工时 ai小助手对话：Markdown 渲染 + SSE 流式。
 12. **（2026-07-29）部署形态：单台云主机 + Docker Compose + nginx 反代，前端静态文件同源托管。**
-13. **（2026-07-29）DB 演进：保留 sql.js，后期直接上 PostgreSQL，不中途换 better-sqlite3（避免驱动迁移做两遍）。`synchronize: true` 一并留到上 PG 时再关。**
+13. **（2026-08-07）DB 演进：当前 Prisma SQLite；上云后再切 PostgreSQL（本机若装 PG，目录偏好 `D:\software\pg`，避免占 C 盘）。HTTP 层为 Nest Fastify。**
 14. **（2026-07-29）上线原则：只做「影响上线部署」的改动，且所有改动必须兼容本地运行（默认值保持现状，靠环境变量/`isDevMode()` 区分）。**
 
-> ⚠️ **运维铁律（sql.js 期间）**：只能单实例。compose 不得加 `replicas`，不得做新旧进程重叠的滚动发布（每进程持有整份内存 DB 并全量覆写同一文件，并发写=后写者赢、前者全丢）。导入或 AI 分析进行中不要重启容器。
+> ⚠️ **运维建议（Prisma SQLite 期间）**：仍建议单实例（并发写友好度有限）。compose 勿加 `replicas`；多实例等迁 PG。
 
 ## 当前状态
 
@@ -42,7 +42,7 @@
 |------|------|
 | 需求澄清 | 已完成 |
 | 技术方案 | 已完成 |
-| 代码实现 | **MVP 已落地**；2026-07-29 完成上云改造（同源部署 + 密钥强制 + 上传限制 + 导入事务） |
+| 代码实现 | **MVP 已落地**；2026-07-29 上云改造；**2026-08-07 底层迁 Prisma SQLite + Nest Fastify** |
 | 部署就绪 | 产物齐备（Dockerfile×2 / compose / nginx.conf）；待服务器侧配证书与 `.htpasswd` |
 | 默认管理员 | `admin` / `admin123`（见 README） |
 | 联调 | 登录、工时导入、规则周报生成已用样例验证；AI 需自行配置 Key |
@@ -51,8 +51,8 @@
 
 ```text
 apps/web/          Angular 19.2 + ng-zorro
-apps/api/          NestJS + TypeORM + sql.js
-apps/data/         ★ 真实运行数据：assistant.sqlite + uploads/
+apps/api/          NestJS Fastify + Prisma
+apps/data/         ★ 真实运行数据：assistant.prisma.sqlite + uploads/
 data/              仅 sample-worktime.xlsx + .gitkeep（非运行数据）
 docs/10001/技术方案.md
 docs/10001/系统消化文档.md
@@ -60,7 +60,7 @@ docs/CONTEXT.md
 README.md
 ```
 
-> ⚠️ **数据目录易错点**：`common/paths.ts` 的 `ROOT_DIR = join(__dirname,'..','..','..')` 从 `apps/api/src/common` 上溯三级实际落在 `<repo>/apps`，故运行数据在 **`apps/data/`**，不是根目录 `data/`。实测：`apps/data/assistant.sqlite` 1.1MB、`apps/data/uploads` 162 文件 34.5MB。配置持久卷时若照旧文档挂 `data/` 会挂到空目录，数据留在容器可写层，`docker compose down` 即丢且全程不报错。
+> ⚠️ **数据目录易错点**：`common/paths.ts` 的 `ROOT_DIR = join(__dirname,'..','..','..')` 从 `apps/api/src/common` 上溯三级实际落在 `<repo>/apps`，故运行数据在 **`apps/data/`**，不是根目录 `data/`。DB 文件现为 `assistant.prisma.sqlite`；`DATABASE_URL` 未设时由 `ensureDatabaseUrl()` 按 `DATA_DIR` 拼出。配置持久卷时若挂错目录，数据留在容器可写层，`docker compose down` 即丢且全程不报错。
 
 ## 菜单与路由
 
@@ -107,12 +107,12 @@ README.md
 
 ### 建议顺手做 — ✅ 已完成
 
-- [x] **导入事务**（`sys-params.service.ts`）：`dataSource.transaction` + `manager.clear(SysParam)`；失败时 `rmSync` 清理本次新建的图片目录，避免孤儿目录。
-- [x] **上传 limits**（`common/upload.ts`）：50MB + 仅 `.xlsx`（扩展名在 `decodeMulterFilename` 之后判断）；新增 `MulterExceptionFilter` 把 `LIMIT_FILE_SIZE` 映射为 400 中文提示（否则是 500）。
+- [x] **导入事务**（`sys-params.service.ts`）：现为 `prisma.$transaction` 内 `deleteMany` + `createMany`；失败时 `rmSync` 清理本次新建的图片目录。
+- [x] **上传 limits**（`common/upload.ts`）：50MB + 仅 `.xlsx`（Fastify multipart + `readExcelUpload`）；超限映射为 400 中文提示。
 
 ### 明确推迟
 
-sql.js → PG（连 `synchronize` 关闭 + 初始 migration 一起做）、`/uploads` 签名 URL（Basic Auth 暂兜）、AI 限流、AI HTML 消毒、周报对话 `taskName` bug、导入图片目录清理。
+Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI 限流、AI HTML 消毒、周报对话 `taskName` bug、导入图片目录清理。
 
 > ⚠️ 推迟项中 **「分析行数上限」有自伤风险**：Basic Auth 挡不住自己手滑点全量分析，单次即数万 token。
 
@@ -230,6 +230,11 @@ sql.js → PG（连 `synchronize` 关闭 + 初始 migration 一起做）、`/upl
 | 2026-08-07 14:09 | notes 二次 review：结构/类型/DTO 外置已明显改进；剩 P3：`title?` 宜改为 `title: string`；方法上重复 Guard；`@param dto:` 冒号多余；content 可补 MaxLength/默认 `''`。 |
 | 2026-08-07 14:26 | DTO `title: string` TS 报未初始化：因属性由 ValidationPipe 注入、无构造赋值；Nest 惯例写 `title!: string`（definite assignment）。 |
 | 2026-08-07 14:28 | 提交并 push：`5d0dc32` — Notes 模块（Entity/DTO/CRUD 列表+创建）、CONTEXT。 |
+| 2026-08-07 15:05 | **底层迁移落地**：TypeORM+sql.js+Express → **Prisma 6 + SQLite 文件 + Nest Fastify**。旧 `assistant.sqlite` 备份为 `assistant.sqljs.bak`；新库 `assistant.prisma.sqlite`；业务数据重建（仅 seed）。去掉 Entity/`TypeOrmModule`；`PrismaModule` 全局；上传改 `@fastify/multipart`；SSE 改 `FastifyReply.hijack`+`raw`；静态 `/uploads` 用 `@fastify/static`。Dockerfile 含 `prisma generate` + 启动 `migrate deploy`。冒烟：login / health / notes / settings / 工时 import（Node FormData）通过；SSE 协议未改前端。 |
+| 2026-08-07 15:12 | `start:dev` 报 TS7016：`@fastify/static` 声明找不到（包自带 types，但 nodenext + default import 不稳定）。`main.ts` 改为 `createRequire` 加载 multipart/static。 |
+| 2026-08-07 15:18 | 用户问 Prisma 新建表：答「改 schema.prisma 加 model → `npm run db:migrate:dev` → 代码里 `prisma.xxx`」。 |
+| 2026-08-07 15:36 | DeepSeek「测试连接」400：`AI 返回为空`。根因 deepseek-v4-flash 默认 thinking，`max_tokens:16` 被推理占满。`testConnection` 改为 `disableThinking` + `maxTokens:64`。 |
+| 2026-08-07 15:40 | 用户终端 `EADDRINUSE :3000`：释放占用进程后可再 `npm run start:dev`。 |
 
 ## NestJS 手写练习（学习轨）
 
@@ -253,6 +258,7 @@ sql.js → PG（连 `synchronize` 关闭 + 初始 migration 一起做）、`/upl
 
 ## 下一对话建议开场动作
 
-1. 用户可小清理后要练习 4，或先 commit notes。  
-2. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
-3. `npm run start:dev`。
+1. 可 commit 本次 Prisma+Fastify 迁移（未自动 commit）。  
+2. 上云剩余：证书 / htpasswd / 服务器 `.env`；部署时确认卷内为 `assistant.prisma.sqlite`。  
+3. 练习 4（上传）可对照现有 Fastify multipart 路径学习。  
+4. `npm run start:dev`。

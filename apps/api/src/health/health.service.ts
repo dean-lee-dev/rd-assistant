@@ -1,45 +1,25 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
-// import { JwtService } from '@nestjs/jwt';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Not, Repository, IsNull } from 'typeorm';
-import * as bcrypt from 'bcrypt';
-import { User, AiSetting, WeeklyReport, WorktimeImport, SysParam } from '../entities';
+import { Injectable } from '@nestjs/common';
+import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
 export class HealthService {
-  constructor(
-    @InjectRepository(User) private readonly users: Repository<User>,
-    @InjectRepository(AiSetting) private readonly aiSettings: Repository<AiSetting>,
-    @InjectRepository(WeeklyReport) private readonly weeklyReports: Repository<WeeklyReport>,
-    @InjectRepository(WorktimeImport) private readonly worktimeImports: Repository<WorktimeImport>,
-    @InjectRepository(SysParam) private readonly sysParams: Repository<SysParam>,
-    // private readonly jwt: JwtService,
-  ) {}
-
+  constructor(private readonly prisma: PrismaService) {}
 
   async getStatsSummary() {
-    console.log('getStatsSummary');
-    const userCount = await this.users.count();
-    const aiConfigured = await this.aiSettings.findOne({ where: { apiKey: Not(IsNull()) } }) != null;
-    const worktimeImportCount = await this.worktimeImports.count();
-    const weeklyReportCount = await this.weeklyReports.count();
-    const sysParamCount  = await this.sysParams.count();
-    console.log(
-        {
-            userCount,
-            aiConfigured,
-            worktimeImportCount,
-            weeklyReportCount,
-            sysParamCount
-          }
-    )
+    const userCount = await this.prisma.user.count();
+    const aiRows = await this.prisma.aiSetting.findMany({
+      select: { apiKey: true },
+    });
+    const aiConfigured = aiRows.some((r) => Boolean(r.apiKey?.trim()));
+    const worktimeImportCount = await this.prisma.worktimeImport.count();
+    const weeklyReportCount = await this.prisma.weeklyReport.count();
+    const sysParamCount = await this.prisma.sysParam.count();
     return {
       userCount,
       aiConfigured,
       worktimeImportCount,
       weeklyReportCount,
-      sysParamCount
+      sysParamCount,
     };
   }
-
 }

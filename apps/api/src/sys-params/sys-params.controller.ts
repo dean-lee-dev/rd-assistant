@@ -7,16 +7,14 @@ import {
   ParseIntPipe,
   Post,
   Query,
+  Req,
   Res,
-  UploadedFile,
   UseGuards,
-  UseInterceptors,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { FileInterceptor } from '@nestjs/platform-express';
-import type { Response } from 'express';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 import { endSse, initSse, writeSse } from '../common/sse';
-import { EXCEL_UPLOAD_OPTIONS } from '../common/upload';
+import { readExcelUpload } from '../common/upload';
 import { SysParamsService } from './sys-params.service';
 
 function sseErrorMessage(e: unknown, fallback: string): string {
@@ -39,8 +37,8 @@ export class SysParamsController {
   constructor(private readonly sysParams: SysParamsService) {}
 
   @Post('import')
-  @UseInterceptors(FileInterceptor('file', EXCEL_UPLOAD_OPTIONS))
-  import(@UploadedFile() file: Express.Multer.File) {
+  async import(@Req() req: FastifyRequest) {
+    const file = await readExcelUpload(req);
     return this.sysParams.importExcel(file);
   }
 
@@ -60,16 +58,19 @@ export class SysParamsController {
   }
 
   @Post('analyze/stream')
-  async analyzeStream(@Body() body: { ids?: number[] }, @Res() res: Response) {
-    initSse(res);
+  async analyzeStream(
+    @Body() body: { ids?: number[] },
+    @Res() reply: FastifyReply,
+  ) {
+    initSse(reply);
     try {
       for await (const ev of this.sysParams.analyzeStream(body?.ids)) {
-        writeSse(res, ev);
+        writeSse(reply, ev);
       }
-      endSse(res);
+      endSse(reply);
     } catch (e) {
-      writeSse(res, { type: 'error', message: sseErrorMessage(e, '分析失败') });
-      endSse(res);
+      writeSse(reply, { type: 'error', message: sseErrorMessage(e, '分析失败') });
+      endSse(reply);
     }
   }
 
@@ -79,16 +80,19 @@ export class SysParamsController {
   }
 
   @Post('chat/stream')
-  async chatStream(@Body() body: { message?: string }, @Res() res: Response) {
-    initSse(res);
+  async chatStream(
+    @Body() body: { message?: string },
+    @Res() reply: FastifyReply,
+  ) {
+    initSse(reply);
     try {
       for await (const ev of this.sysParams.chatStream(body?.message || '')) {
-        writeSse(res, ev);
+        writeSse(reply, ev);
       }
-      endSse(res);
+      endSse(reply);
     } catch (e) {
-      writeSse(res, { type: 'error', message: sseErrorMessage(e, '对话失败') });
-      endSse(res);
+      writeSse(reply, { type: 'error', message: sseErrorMessage(e, '对话失败') });
+      endSse(reply);
     }
   }
 
