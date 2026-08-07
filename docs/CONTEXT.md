@@ -169,6 +169,7 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 
 | 时间 | 摘要 |
 |------|------|
+| 2026-08-07 16:35 | 学习：`main.ts` 的 `bootstrap()` 是 NestJS CLI 官方脚手架约定入口（非语言标准），`async` 启动 + 顶层调用。 |
 | 2026-07-27 13:40 | 初始化 git；确认需求；技术方案 `10001`；CONTEXT。 |
 | 2026-07-27 14:20 | MVP 实现：Nest API + Angular 三页；sql.js；样例工时导入/规则周报验证通过；README 启动说明。 |
 | 2026-07-27 14:26 | 前端端口由 4200 改为 **5173**（CORS 同步）。 |
@@ -238,6 +239,7 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-07 16:02 | 提交并 push：`44bcda3` — Prisma SQLite + Nest Fastify 迁移；DeepSeek v4 测试连接关 thinking。 |
 | 2026-08-07 16:08 | 再次 EADDRINUSE:3000（旧 node 占用），杀掉后需重跑 `start:dev`。 |
 | 2026-08-07 16:12 | 用户问是否 Nest「更严格 TS」：api 是（有 strictNullChecks/noImplicitAny 等，但未开完整 `strict:true`）；web 已 `strict:true`。 |
+| 2026-08-07 16:17 | 开练习 4 需求：学习用「小文件上传」模块（Fastify multipart + 落盘 + 元数据入库），须 JWT；勿改工时/配置洞察导入。 |
 
 ## NestJS 手写练习（学习轨）
 
@@ -250,18 +252,42 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 
 ### 练习 3 — 带校验的写接口 ✅ 已完成
 
-- `NotesModule` + Entity `Note`（表 `note`）+ `POST/GET /api/notes`（JWT）
-- 联调：空 title→400；POST→201；GET 倒序 OK
-- Review 待改：`title` 勿 `@IsOptional`；列表键名代码为 `item`（建议 `items`）；DTO 外置；清无用 import/`console.log`；可补 `MaxLength`
+### 练习 4 — 小文件上传 ⏳ 进行中（仅需求，待实现）
+
+目标：学会 **Fastify multipart** 收文件、校验、落盘，并把元数据写入 Prisma（对照现有 `readExcelUpload`，但**不要改**工时/配置洞察业务导入）。
+
+#### 功能需求
+
+1. **新模块** `FilesModule`（或 `UploadsModule`，目录自定，建议 `apps/api/src/files/`）。
+2. **Prisma 新表**（自己改 `schema.prisma` + `npm run db:migrate:dev`），建议字段至少：
+   - `id`、`originalName`、`storedName`、`mimeType`、`size`、`relativePath`、`createdAt`
+   - 表名可用 `@@map("uploaded_files")`
+3. **接口**（均需 JWT）：
+   - `POST /api/files`：`multipart/form-data`，字段名 **`file`**  
+     - 仅允许：`.png` / `.jpg` / `.jpeg` / `.txt`（扩展名用 `decodeMulterFilename` 后再判断）  
+     - 大小上限：**2MB**（超限 → 400，中文提示）  
+     - 无文件 / 空文件 → 400  
+     - 成功：文件写到 `UPLOADS_DIR/files/`（可参考 `paths.ts` 的 `UPLOADS_DIR`），DB 写一条元数据  
+     - 响应示例：`{ id, originalName, url, size, createdAt }`，其中 `url` 形如 `/uploads/files/xxx.png`（能用现有静态挂载访问）
+   - `GET /api/files`：按 `id` 倒序列表，返回 `{ total, items: [...] }`
+4. **禁止**：改 `worktime` / `sys-params` 的 import；不要引入 Express Multer / `FileInterceptor`。
+5. **可参考**：`common/upload.ts` 的 `req.file()` + `toBuffer()`；`main.ts` 里已注册 multipart 与 `/uploads` 静态目录。
+
+#### 验收（自己用 Apifox / curl）
+
+- 未带 Token → 401  
+- 上传 `.exe` 或超 2MB → 400  
+- 合法小图/文本 → 201/200 + DB 有记录；浏览器打开返回的 `url` 能访问  
+- `GET /api/files` 倒序看到刚传的条目  
+
+卡住再问；做完说一声做 review。
 
 ### 练习队列（未开需求）
 
-4. 文件上传小练习  
 5. SSE（最后）
 
 ## 下一对话建议开场动作
 
-1. 可 commit 本次 Prisma+Fastify 迁移（未自动 commit）。  
-2. 上云剩余：证书 / htpasswd / 服务器 `.env`；部署时确认卷内为 `assistant.prisma.sqlite`。  
-3. 练习 4（上传）可对照现有 Fastify multipart 路径学习。  
-4. `npm run start:dev`。
+1. 用户实现练习 4，或卡住提问。  
+2. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
+3. `npm run start:dev`（注意勿多开占 3000）。
