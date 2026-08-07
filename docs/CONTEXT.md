@@ -235,6 +235,7 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-07 15:18 | 用户问 Prisma 新建表：答「改 schema.prisma 加 model → `npm run db:migrate:dev` → 代码里 `prisma.xxx`」。 |
 | 2026-08-07 15:36 | DeepSeek「测试连接」400：`AI 返回为空`。根因 deepseek-v4-flash 默认 thinking，`max_tokens:16` 被推理占满。`testConnection` 改为 `disableThinking` + `maxTokens:64`。 |
 | 2026-08-07 15:40 | 用户终端 `EADDRINUSE :3000`：释放占用进程后可再 `npm run start:dev`。 |
+| 2026-08-07 16:02 | 提交并 push：`44bcda3` — Prisma SQLite + Nest Fastify 迁移；DeepSeek v4 测试连接关 thinking。 |
 
 ## NestJS 手写练习（学习轨）
 
