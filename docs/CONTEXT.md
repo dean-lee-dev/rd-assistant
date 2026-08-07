@@ -236,6 +236,8 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-07 15:36 | DeepSeek「测试连接」400：`AI 返回为空`。根因 deepseek-v4-flash 默认 thinking，`max_tokens:16` 被推理占满。`testConnection` 改为 `disableThinking` + `maxTokens:64`。 |
 | 2026-08-07 15:40 | 用户终端 `EADDRINUSE :3000`：释放占用进程后可再 `npm run start:dev`。 |
 | 2026-08-07 16:02 | 提交并 push：`44bcda3` — Prisma SQLite + Nest Fastify 迁移；DeepSeek v4 测试连接关 thinking。 |
+| 2026-08-07 16:08 | 再次 EADDRINUSE:3000（旧 node 占用），杀掉后需重跑 `start:dev`。 |
+| 2026-08-07 16:12 | 用户问是否 Nest「更严格 TS」：api 是（有 strictNullChecks/noImplicitAny 等，但未开完整 `strict:true`）；web 已 `strict:true`。 |
 
 ## NestJS 手写练习（学习轨）
 
