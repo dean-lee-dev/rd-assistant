@@ -229,6 +229,7 @@ sql.js → PG（连 `synchronize` 关闭 + 初始 migration 一起做）、`/upl
 | 2026-08-07 14:06 | Controller 类型：参数用 `@Body() dto: CreateNoteDto`；返回可用 `Promise<ReturnType<NotesService['getAllNotes']>>` 或与 Service 共用命名类型；JSDoc 可简写并 `{@link}` 到 DTO/Service。 |
 | 2026-08-07 14:09 | notes 二次 review：结构/类型/DTO 外置已明显改进；剩 P3：`title?` 宜改为 `title: string`；方法上重复 Guard；`@param dto:` 冒号多余；content 可补 MaxLength/默认 `''`。 |
 | 2026-08-07 14:26 | DTO `title: string` TS 报未初始化：因属性由 ValidationPipe 注入、无构造赋值；Nest 惯例写 `title!: string`（definite assignment）。 |
+| 2026-08-07 14:28 | 提交并 push：`5d0dc32` — Notes 模块（Entity/DTO/CRUD 列表+创建）、CONTEXT。 |
 
 ## NestJS 手写练习（学习轨）
 
