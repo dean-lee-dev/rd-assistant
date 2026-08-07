@@ -8,6 +8,7 @@ import {
   User,
   WeeklyReport,
   WorktimeImport,
+  Note
 } from './entities';
 import { ensureDataDirs, DB_FILE, UPLOADS_DIR } from './common/paths';
 import { AuthModule } from './auth/auth.module';
@@ -16,6 +17,7 @@ import { WorktimeModule } from './worktime/worktime.module';
 import { SysParamsModule } from './sys-params/sys-params.module';
 import { SeedModule } from './seed/seed.module';
 import { HealthModule } from './health/health.module';
+import { NotesModule } from './notes/notes.module';
 
 ensureDataDirs();
 
@@ -25,7 +27,7 @@ ensureDataDirs();
       type: 'sqljs',
       location: DB_FILE,
       autoSave: true,
-      entities: [User, AiSetting, WorktimeImport, WeeklyReport, SysParam, SysParamAiState],
+      entities: [User, AiSetting, WorktimeImport, WeeklyReport, SysParam, SysParamAiState, Note],
       synchronize: true,
     }),
     ServeStaticModule.forRoot({
@@ -38,6 +40,7 @@ ensureDataDirs();
     SysParamsModule,
     SeedModule,
     HealthModule,
+    NotesModule
   ],
 })
 export class AppModule {}

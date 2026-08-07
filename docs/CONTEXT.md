@@ -220,6 +220,15 @@ sql.js → PG（连 `synchronize` 关闭 + 初始 migration 一起做）、`/upl
 | 2026-08-05 18:52 | 用户问 P3 文件名拼写在哪：`apps/api/src/health/healty.module.ts`（少字母 h），`app.module.ts` 第 18 行 import 也指向该文件。 |
 | 2026-08-05 18:54 | 用户问错拼文件名为何不报错：import 路径与磁盘文件名一致即可；类名 `HealthModule` 与文件名无强制校验。已改为 `health.module.ts`。 |
 | 2026-08-05 18:56 | 提交并 push：`540573d` — Health 模块（health + JWT stats）、CONTEXT、`scripts/test-health-stats.ps1`。 |
+| 2026-08-06 09:33 | 开练习 3 需求：学习用「备忘录 Notes」模块（新建 Entity + POST 校验写库 + GET 列表），须 JWT；不动 AI/工时业务表。 |
+| 2026-08-07 13:52 | 练习 3 联调通过：空 title→400；合法 POST→201；GET 倒序列表。代码 review：主路径 OK；`title` 上 `@IsOptional`+`@IsNotEmpty` 对「缺字段」偏松；列表字段名代码为 `item`（需求为 `items`）；DTO 宜抽到独立文件；清理无用 import/`console.log`。练习 3 标完成。 |
+| 2026-08-07 13:58 | 用户问 DTO 目录放哪：本项目尚无统一 dto 目录；推荐按模块放 `notes/dto/create-note.dto.ts`（Nest 常见）；小模块也可与 controller 同级单文件。 |
+| 2026-08-07 14:00 | 用户已按 review 改 notes（含 dto 外置）；问 JSDoc 快速生成：Cursor 内可用扩展 Document This / AI 选中生成；约定中文 JSDoc 与仓库前端风格一致。 |
+| 2026-08-07 14:01 | JSDoc 可跳转类型：用 `{@link CreateNoteDto}` 或 `@param {CreateNoteDto} dto`（文件须已 import）；勿写 `@param dto: @class ...`。TS 签名上的类型本身也可 Ctrl+点击。 |
+| 2026-08-07 14:04 | 复杂返回类型勿塞进 `{@link {total, items}}`；用 `@returns {{ total: number, items: Note[] }}` 描述，或抽命名 interface 再 `{@link Xxx}`。 |
+| 2026-08-07 14:06 | Controller 类型：参数用 `@Body() dto: CreateNoteDto`；返回可用 `Promise<ReturnType<NotesService['getAllNotes']>>` 或与 Service 共用命名类型；JSDoc 可简写并 `{@link}` 到 DTO/Service。 |
+| 2026-08-07 14:09 | notes 二次 review：结构/类型/DTO 外置已明显改进；剩 P3：`title?` 宜改为 `title: string`；方法上重复 Guard；`@param dto:` 冒号多余；content 可补 MaxLength/默认 `''`。 |
+| 2026-08-07 14:26 | DTO `title: string` TS 报未初始化：因属性由 ValidationPipe 注入、无构造赋值；Nest 惯例写 `title!: string`（definite assignment）。 |
 
 ## NestJS 手写练习（学习轨）
 
@@ -228,21 +237,21 @@ sql.js → PG（连 `synchronize` 关闭 + 初始 migration 一起做）、`/upl
 
 ### 练习 1 — 健康检查 ✅ 已完成
 
-- `GET /api/health` 未登录可访问。
-
 ### 练习 2 — 只读查库 ✅ 已完成
 
-- `GET /api/health/stats/summary` + JWT Guard；`HealthService` 多表 count。
-- Review 待改点见上条变更日志（不阻塞进入练习 3）。
+### 练习 3 — 带校验的写接口 ✅ 已完成
 
-### 练习队列（未开需求，仅备忘）
+- `NotesModule` + Entity `Note`（表 `note`）+ `POST/GET /api/notes`（JWT）
+- 联调：空 title→400；POST→201；GET 倒序 OK
+- Review 待改：`title` 勿 `@IsOptional`；列表键名代码为 `item`（建议 `items`）；DTO 外置；清无用 import/`console.log`；可补 `MaxLength`
 
-3. 带校验的写接口  
+### 练习队列（未开需求）
+
 4. 文件上传小练习  
 5. SSE（最后）
 
 ## 下一对话建议开场动作
 
-1. 用户可先按 review 小清理，或直接要练习 3 需求。  
+1. 用户可小清理后要练习 4，或先 commit notes。  
 2. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
-3. 学习期优先 `npm run start:dev`。
+3. `npm run start:dev`。

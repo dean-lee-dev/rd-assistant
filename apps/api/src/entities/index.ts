@@ -210,3 +210,19 @@ export class SysParamAiState {
   @UpdateDateColumn()
   updatedAt!: Date;
 }
+
+/** 备忘录 */
+@Entity('note')
+export class Note {
+  @PrimaryGeneratedColumn()
+  id!: number;
+
+  @Column({ type: 'varchar' })
+  title!: string;
+
+  @Column({ type: 'text', nullable: true })
+  content!: string | null;
+
+  @CreateDateColumn()
+  createdAt!: Date;
+}
