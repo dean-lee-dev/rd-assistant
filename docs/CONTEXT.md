@@ -240,6 +240,11 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-07 16:08 | 再次 EADDRINUSE:3000（旧 node 占用），杀掉后需重跑 `start:dev`。 |
 | 2026-08-07 16:12 | 用户问是否 Nest「更严格 TS」：api 是（有 strictNullChecks/noImplicitAny 等，但未开完整 `strict:true`）；web 已 `strict:true`。 |
 | 2026-08-07 16:17 | 开练习 4 需求：学习用「小文件上传」模块（Fastify multipart + 落盘 + 元数据入库），须 JWT；勿改工时/配置洞察导入。 |
+| 2026-08-10 08:58 | 用户打招呼续聊；练习 4 仍待实现。 |
+| 2026-08-12 15:46 | 用户再次开始练习 4；仓库仍无 `files` 模块实现，继续按 CONTEXT 需求手写。 |
+| 2026-08-13 09:34 | 用户续聊；`schema.prisma` 已加 `UploadedFile` 模型（`storeName`），尚未 migrate / 未建 `files` 模块。 |
+| 2026-08-13 09:36 | 用户再次打招呼；练习 4 进度不变。 |
+| 2026-08-14 18:20 | 提交练习 4 进度：`UploadedFile` 模型入 schema；files 模块尚未实现。 |
 
 ## NestJS 手写练习（学习轨）
 

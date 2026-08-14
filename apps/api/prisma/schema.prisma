@@ -93,3 +93,13 @@ model Note {
 
   @@map("note")
 }
+
+model UploadedFile {
+  id        Int      @id @default(autoincrement())
+  originalName String
+  storeName String
+  mimeType String?
+  size Int
+  relativePath String
+  createdAt DateTime @default(now())
+}
