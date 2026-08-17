@@ -12,3 +12,15 @@ export class CreateNoteDto {
     content?: string;
 
 }
+
+export class UpdateNoteDto {
+    @IsOptional()
+    @IsNotEmpty()
+    @IsString()
+    @MaxLength(100)
+    title?: string;
+
+    @IsOptional()
+    @IsString()
+    content?: string;
+}

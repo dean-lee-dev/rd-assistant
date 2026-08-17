@@ -1,7 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import type { Note } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateNoteDto } from './dto/create-note.dto';
+import { CreateNoteDto, UpdateNoteDto } from './dto/create-note.dto';
 
 @Injectable()
 export class NotesService {
@@ -30,6 +30,49 @@ export class NotesService {
         title: dto.title,
         content: dto.content ?? null,
       },
+    });
+  }
+
+  async getNoteById(id: number): Promise<Note> {
+    const note = await this.prisma.note.findUnique({
+      where: { id },
+    });
+    if ( !note ) {
+      throw new NotFoundException('备忘录不存在');
+    }
+    return note
+  }
+
+  async updateNoteById(id: number, dto: UpdateNoteDto): Promise<Note> {
+    let data: { title?: string, content?: string } = {};
+    if ( dto.title !== undefined ) {
+      data.title = dto.title ?? undefined;
+    }
+    if ( dto.content !== undefined ) {
+      data.content = dto.content ?? undefined;
+    }
+    const note = await this.prisma.note.findUnique({
+      where: { id },
+    });
+    if ( !note ) {
+      throw new NotFoundException('备忘录不存在');
+    }
+    return this.prisma.note.update({
+      where: { id },
+      data
+    })
+  }
+
+
+  async deleteNoteById(id: number): Promise<Note> {
+    const note = await this.prisma.note.findUnique({
+      where: { id },
+    });
+    if ( !note ) {
+      throw new NotFoundException('备忘录不存在');
+    }
+    return this.prisma.note.delete({
+      where: { id },
     });
   }
 }

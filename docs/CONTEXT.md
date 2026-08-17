@@ -262,6 +262,14 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-17 15:48 | 练习 5 三次 review：`i` 已从 1 到 n；需求满足。剩 P1：stream 应传校验后的 `n`、Service 仍注入无用 Prisma/reply。 |
 | 2026-08-17 16:09 | 练习 5 四次 review：已传校验后的 `n`、去掉 Prisma；可标完成。 |
 | 2026-08-17 16:10 | 提交并 push 练习 5：`TicksModule` + JWT SSE ticks stream。 |
+| 2026-08-17 16:38 | 开练习 6 需求：在现有 `NotesModule` 上补 GET/PATCH/DELETE by id（`ParseIntPipe` + `NotFoundException`）。 |
+| 2026-08-17 17:08 | 练习 6 代码 review：路由/JWT/`ParseIntPipe`/DELETE 的 404 已有。P0：GET 不存在返回 200+null；PATCH 不存在会 500；DELETE 成功是 200 不是 204；PATCH 用 truthy 判断字段。 |
+| 2026-08-17 17:14 | 练习 6 二次 review：GET/PATCH 的 404 已改。P0 剩：DELETE 仍 200+null；PATCH 复用 CreateNoteDto（title 必填）导致不能只改 content；Service 仍用 truthy 判断字段。 |
+| 2026-08-17 17:21 | 练习 6 三次 review：DELETE 204、UpdateNoteDto、PATCH 404 已齐。P0：`in` 在 class DTO 上恒真（会误清空未传字段）；UpdateNoteDto.title 仍缺非空/最长 100。 |
+| 2026-08-17 17:28 | 练习 6 答疑：`@IsOptional()` + `@IsNotEmpty()` 不是必填；缺省/undefined 跳过，传了空字符串才 400。 |
+| 2026-08-17 17:29 | 练习 6 答疑：若产品允许清空 title 就不能加 `@IsNotEmpty()`；本次练习标题不可置空，与创建规则一致。 |
+| 2026-08-17 17:30 | 练习 6 四次 review：DTO/`!== undefined`/404/204 已齐。P0 剩 Controller 仍用 `"title" in dto`，空 PATCH `{}` 会 200 而不是 400。 |
+| 2026-08-17 17:31 | 练习 6 已改 `!== undefined`；提交并 push：Notes GET/PATCH/DELETE by id。 |
 
 ## NestJS 手写练习（学习轨）
 
@@ -338,8 +346,54 @@ curl -N -X POST http://127.0.0.1:3000/api/ticks/stream -H "Authorization: Bearer
 
 卡住再问；做完喊 review。
 
+### 练习 6 — 按 id 查改删（404 + 路径参数） ✅ 已完成
+
+目标：把练习 3 的备忘录从「只有列表 + 创建」补成完整 REST；学会 **`@Param` + `ParseIntPipe`**、**`NotFoundException`**、**PATCH 部分更新**、**DELETE 204**。
+
+在现有 `NotesModule` 上扩展，**不要新建模块**。不必改 Prisma schema。
+
+#### 功能需求
+
+1. **保留**现有接口：
+   - `GET /api/notes`（列表）
+   - `POST /api/notes`（创建）
+2. **新增**（均需 JWT）：
+   - `GET /api/notes/:id`  
+     - `:id` 用 `ParseIntPipe` 转成 number（非法如 `abc` → 框架自动 400）  
+     - 存在 → 返回该条 Note  
+     - 不存在 → `NotFoundException`，中文提示如「备忘录不存在」（HTTP 404）
+   - `PATCH /api/notes/:id`  
+     - 同样 `ParseIntPipe` + 不存在 404  
+     - Body 用新 DTO（建议 `UpdateNoteDto`）：`title`、`content` 都可选  
+       - `title` 若出现：规则与创建相同（非空字符串、最长 100）  
+       - `content` 若出现：字符串；允许传 `null` 清空（若不好做可只支持字符串，但不要把「没传」当成清空）  
+     - **至少提供一个字段**，否则 400（中文提示）  
+     - 成功返回更新后的整条 Note
+   - `DELETE /api/notes/:id`  
+     - 不存在 → 404（同上）  
+     - 成功 → **204 无 body**（`@HttpCode(HttpStatus.NO_CONTENT)` 或 `204`）
+3. Service 里用 `findUnique` / `findFirst` 判断存在，再 `update` / `delete`；不要吞掉 Prisma 的未知错误。
+4. **禁止**：改工时/配置洞察/files/ticks；不要为练习加新表。
+
+#### 可参考（只看用法，别抄业务）
+
+- `worktime.controller.ts`：`@Param('id', ParseIntPipe)`
+- `worktime.service.ts` / `sys-params.service.ts`：`throw new NotFoundException('...')`
+- 现有 `CreateNoteDto`：class-validator 写法
+
+#### 验收
+
+- 无 Token → 401
+- `GET /api/notes/abc` → 400
+- `GET /api/notes/999999`（不存在）→ 404 JSON
+- 先 `POST` 一条，再 `GET /api/notes/:id` 能拿到
+- `PATCH` 只改 `title`，`content` 保持原值；空 body `{}` → 400
+- `DELETE` 成功 → 204；再 GET 同一 id → 404
+
+卡住再问；做完喊 review。
+
 ## 下一对话建议开场动作
 
-1. NestJS 练习 1–5 已完成；下一项练习待开需求。  
+1. NestJS 练习 1–6 已完成；下一项练习待开需求。  
 2. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
 3. `npm run start:dev`（注意勿多开占 3000）。

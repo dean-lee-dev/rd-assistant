@@ -1,8 +1,9 @@
-import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards, HttpStatus,
+         ParseIntPipe, Param, Patch,Delete, BadRequestException, HttpCode } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Note } from '@prisma/client';
 import { NotesService } from './notes.service';
-import { CreateNoteDto } from './dto/create-note.dto';
+import { CreateNoteDto, UpdateNoteDto } from './dto/create-note.dto';
 
 @Controller('notes')
 @UseGuards(AuthGuard('jwt'))
@@ -26,5 +27,27 @@ export class NotesController {
   @Post()
   create(@Body() dto: CreateNoteDto): Promise<Note> {
     return this.noteService.createNote(dto);
+  }
+
+  @Get(':id')
+  getById(@Param('id', ParseIntPipe) id: number): Promise<Note> {
+    return this.noteService.getNoteById(id);
+  }
+
+
+  @Patch(':id')
+  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateNoteDto): Promise<Note> {
+    if ( dto.title !== undefined || dto.content !== undefined ) {
+      return this.noteService.updateNoteById(id, dto);
+      
+    }
+    throw new BadRequestException('标题和内容不能同时为空');
+  }
+
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async delete(@Param('id', ParseIntPipe) id: number): Promise<void> {
+    await this.noteService.deleteNoteById(id);
   }
 }
