@@ -245,6 +245,17 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-13 09:34 | 用户续聊；`schema.prisma` 已加 `UploadedFile` 模型（`storeName`），尚未 migrate / 未建 `files` 模块。 |
 | 2026-08-13 09:36 | 用户再次打招呼；练习 4 进度不变。 |
 | 2026-08-14 18:20 | 提交练习 4 进度：`UploadedFile` 模型入 schema；files 模块尚未实现。 |
+| 2026-08-17 10:30 | 用户要求重述练习 4 需求；进度仍停在 schema 已加 `UploadedFile`、未 migrate、未建 files 模块。 |
+| 2026-08-17 10:36 | 用户问现切 PostgreSQL 改动大不大：业务代码小、基础设施与 migration 中等；建议练习 4 做完再切。 |
+| 2026-08-17 10:38 | 用户问何时上云合适：产物已齐；单实例个人用可先 SQLite 上；证书/htpasswd/.env 是服务器侧门槛；PG 可后做。 |
+| 2026-08-17 10:40 | 用户确认用途为**自己用**：可单实例 SQLite 上云，不必先切 PG；服务器侧仍需证书 / htpasswd / `.env`。 |
+| 2026-08-17 10:41 | 用户问「先上云 SQLite、再切 PG」是否来得及：来得及。Prisma 已抽象；先学 compose/nginx/证书，再学 PG 换引擎。 |
+| 2026-08-17 13:31 | 练习 4 代码 review：主路径（模块/JWT/multipart/Prisma）已通；P0：大小判成下限、toBuffer 读两次、落盘路径与 url 不对、列表升序。 |
+| 2026-08-17 13:45 | 用户问 `ensureDataDirs` 如何建 `files` 子目录：在现有数组里加 `join(UPLOADS_DIR, 'files')`。 |
+| 2026-08-17 14:01 | 练习 4 二次 review：列表倒序、UPLOADS_DIR、url 形态已改；P0 剩「磁盘用原名、库用 uuid」对不上，以及大小提示文案仍写「不能小于」。 |
+| 2026-08-17 14:05 | 练习 4 三次 review：P0 已齐（uuid 写盘、relativePath、上限文案）；剩 P1 参数名 minSize/默认 0、多余 .exe 判断。可按验收清单自测。 |
+| 2026-08-17 14:08 | 练习 4 四次 review：P1 已改（maxSize、去掉 .exe）。用户问仓库根 `data/uploads` vs `apps/data/uploads`：运行时只用后者。 |
+| 2026-08-17 14:10 | 提交并 push 练习 4：`FilesModule` + migration + Fastify 上传落盘。 |
 
 ## NestJS 手写练习（学习轨）
 
@@ -257,7 +268,7 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 
 ### 练习 3 — 带校验的写接口 ✅ 已完成
 
-### 练习 4 — 小文件上传 ⏳ 进行中（仅需求，待实现）
+### 练习 4 — 小文件上传 ✅ 已完成
 
 目标：学会 **Fastify multipart** 收文件、校验、落盘，并把元数据写入 Prisma（对照现有 `readExcelUpload`，但**不要改**工时/配置洞察业务导入）。
 

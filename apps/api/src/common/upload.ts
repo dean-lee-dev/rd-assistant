@@ -46,3 +46,34 @@ export async function readExcelUpload(req: FastifyRequest): Promise<UploadedExce
     size: buffer.length,
   };
 }
+
+export async function readFileUpload(req: FastifyRequest, maxSize: number = 2*1024*1024): Promise<
+  { buffer: Buffer, originalname: string, mimetype: string, size: number, extension: string }
+> {
+  const supportedExtensions = ['.jpg', '.jpeg', '.png', '.txt'];
+  const data = await req.file();
+  if ( !data ) {
+    throw new BadRequestException('请上传文件');
+  }
+  
+  const originalname = decodeMulterFilename(data.filename);
+  const lower = originalname.toLowerCase();
+  if (!supportedExtensions.some(ext => lower.endsWith(ext))) {
+    throw new BadRequestException(`仅支持 ${supportedExtensions.join(',')} 文件`);
+  }
+  
+  const buffer = await data.toBuffer();
+  if (!buffer.length) {
+    throw new BadRequestException('请上传文件');
+  }
+  if ( buffer.length > maxSize ) {
+    throw new BadRequestException(`文件大小不能大于 ${Math.round(maxSize/1024/1024)} MB`);
+  }
+  return {
+    buffer,
+    originalname,
+    mimetype: data.mimetype,
+    size: buffer.length,
+    extension: lower.split('.').pop() || '',
+  };
+}

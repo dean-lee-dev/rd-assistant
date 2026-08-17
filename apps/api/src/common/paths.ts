@@ -56,7 +56,7 @@ export function ensureDatabaseUrl(): void {
 
 export function ensureDataDirs() {
   ensureDatabaseUrl();
-  for (const dir of [DATA_DIR, UPLOADS_DIR, join(UPLOADS_DIR, 'sys-params'), join(UPLOADS_DIR, 'worktime')]) {
+  for (const dir of [DATA_DIR, UPLOADS_DIR, join(UPLOADS_DIR, 'sys-params'), join(UPLOADS_DIR, 'worktime'), join(UPLOADS_DIR, 'files')]) {
     if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
   }
 }

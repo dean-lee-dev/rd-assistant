@@ -8,7 +8,7 @@ import { SysParamsModule } from './sys-params/sys-params.module';
 import { SeedModule } from './seed/seed.module';
 import { HealthModule } from './health/health.module';
 import { NotesModule } from './notes/notes.module';
-
+import { FilesModule } from './files/files.module';
 ensureDataDirs();
 
 @Module({
@@ -21,6 +21,7 @@ ensureDataDirs();
     SeedModule,
     HealthModule,
     NotesModule,
+    FilesModule,
   ],
 })
 export class AppModule {}
