@@ -256,6 +256,12 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-17 14:05 | 练习 4 三次 review：P0 已齐（uuid 写盘、relativePath、上限文案）；剩 P1 参数名 minSize/默认 0、多余 .exe 判断。可按验收清单自测。 |
 | 2026-08-17 14:08 | 练习 4 四次 review：P1 已改（maxSize、去掉 .exe）。用户问仓库根 `data/uploads` vs `apps/data/uploads`：运行时只用后者。 |
 | 2026-08-17 14:10 | 提交并 push 练习 4：`FilesModule` + migration + Fastify 上传落盘。 |
+| 2026-08-17 14:15 | 开练习 5 需求：学习用 SSE（Fastify hijack + `common/sse.ts`），须 JWT；勿改工时/配置洞察现有 stream。 |
+| 2026-08-17 15:39 | 练习 5 代码 review：模块/JWT/SSE 主路径已有；P0：`n:0` 被当成默认 5、`i` 从 0 起、缺 try/catch；间隔 1300ms 非 300ms。 |
+| 2026-08-17 15:46 | 练习 5 二次 review：校验/`initSse`/try-catch/300ms 已改；P0 剩 tick 的 `i` 仍从 0 起，且 stream 没用校验后的 `n`。 |
+| 2026-08-17 15:48 | 练习 5 三次 review：`i` 已从 1 到 n；需求满足。剩 P1：stream 应传校验后的 `n`、Service 仍注入无用 Prisma/reply。 |
+| 2026-08-17 16:09 | 练习 5 四次 review：已传校验后的 `n`、去掉 Prisma；可标完成。 |
+| 2026-08-17 16:10 | 提交并 push 练习 5：`TicksModule` + JWT SSE ticks stream。 |
 
 ## NestJS 手写练习（学习轨）
 
@@ -298,12 +304,42 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 
 卡住再问；做完说一声做 review。
 
-### 练习队列（未开需求）
+### 练习 5 — SSE 流式输出 ✅ 已完成
 
-5. SSE（最后）
+目标：学会 Fastify 下用 **SSE**（`text/event-stream`）分段推数据。协议与现网一致：`data: JSON\n\n`，最后 `{"type":"close"}`。
+
+**不要改** `worktime` / `sys-params` 的 chat/analyze stream。
+
+#### 功能需求
+
+1. **新模块**（建议 `apps/api/src/ticks/`）：`TicksModule` + Controller + Service，挂到 `AppModule`。
+2. **不必新建 Prisma 表。**
+3. **接口**（JWT）：
+   - `POST /api/ticks/stream`
+   - Body：`{ n?: number }`  
+     - `n` 缺省为 **5**；必须是 1～20 的整数  
+     - **校验失败要在 `initSse` 之前**抛 `BadRequestException`（400 JSON）。hijack 之后就发不了普通 400 了。
+   - 成功：`@Res() reply: FastifyReply`，调用已有 `initSse` / `writeSse` / `endSse`（`common/sse.ts`）
+   - 每隔约 **300ms** 推一条：`{ "type": "tick", "i": 1, "n": 5 }`（`i` 从 1 到 `n`）
+   - 全部推完后 `endSse(reply)`（会再写 `{"type":"close"}` 并结束）
+   - `try/catch`：异常时 `writeSse(reply, { type: 'error', message: '...' })` 再 `endSse`（可参考 `worktime.controller.ts` 的 `chatStream`）
+4. Service 建议用 `async function*` 生成 tick（Controller 里 `for await`），延时用 `setTimeout` 包一层 Promise，不要同步死循环占满 CPU。
+5. **禁止**：改工时/配置洞察 stream；不要用 Express `Response`。
+
+#### 验收
+
+```bash
+curl -N -X POST http://127.0.0.1:3000/api/ticks/stream -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d "{\"n\":3}"
+```
+
+- 无 Token → 401（普通 JSON，不是 SSE）
+- `n: 0` / `n: 99` → 400 JSON
+- `n: 3` → `text/event-stream`，依次 tick i=1,2,3，最后 close
+
+卡住再问；做完喊 review。
 
 ## 下一对话建议开场动作
 
-1. 用户实现练习 4，或卡住提问。  
+1. NestJS 练习 1–5 已完成；下一项练习待开需求。  
 2. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
 3. `npm run start:dev`（注意勿多开占 3000）。

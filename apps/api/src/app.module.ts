@@ -9,6 +9,7 @@ import { SeedModule } from './seed/seed.module';
 import { HealthModule } from './health/health.module';
 import { NotesModule } from './notes/notes.module';
 import { FilesModule } from './files/files.module';
+import { TicksModule } from './ticks/ticks.module';
 ensureDataDirs();
 
 @Module({
@@ -22,6 +23,7 @@ ensureDataDirs();
     HealthModule,
     NotesModule,
     FilesModule,
+    TicksModule,
   ],
 })
 export class AppModule {}
