@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Post, UseGuards, HttpStatus,
+import { Body, Controller, Get, Post, UseGuards, HttpStatus,Query,
          ParseIntPipe, Param, Patch,Delete, BadRequestException, HttpCode } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Note } from '@prisma/client';
 import { NotesService } from './notes.service';
-import { CreateNoteDto, UpdateNoteDto } from './dto/create-note.dto';
+import { CreateNoteDto, UpdateNoteDto, ListNotesQueryDto } from './dto/create-note.dto';
 
 @Controller('notes')
 @UseGuards(AuthGuard('jwt'))
@@ -15,8 +15,8 @@ export class NotesController {
    * @returns 备忘录列表 {total: number, items: Note[]} 其中items{@link Note}
    */
   @Get()
-  get(): Promise<{ total: number; items: Note[] }> {
-    return this.noteService.getAllNotes();
+  get(@Query() query: ListNotesQueryDto): Promise<{ total: number; page: number; pageSize: number; items: Note[] }> {
+    return this.noteService.getAllNotes(query.page, query.pageSize, query.q);
   }
 
   /**

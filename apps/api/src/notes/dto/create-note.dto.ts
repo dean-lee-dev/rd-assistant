@@ -1,5 +1,5 @@
-import { IsOptional, IsString, IsNotEmpty, MaxLength } from 'class-validator';
-
+import { IsOptional, IsString, IsNotEmpty, MaxLength, Min, Max, IsInt } from 'class-validator';
+import { Type } from 'class-transformer';
 
 export class CreateNoteDto {
     @IsString()
@@ -23,4 +23,23 @@ export class UpdateNoteDto {
     @IsOptional()
     @IsString()
     content?: string;
+}
+
+export class ListNotesQueryDto {
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Type(() => Number)
+    page: number = 1;
+
+    @IsOptional()
+    @IsInt()
+    @Min(1)
+    @Max(50)
+    @Type(() => Number)
+    pageSize: number = 10;
+
+    @IsOptional()
+    @IsString()
+    q?: string;
 }

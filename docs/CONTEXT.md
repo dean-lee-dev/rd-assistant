@@ -270,11 +270,21 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-17 17:29 | 练习 6 答疑：若产品允许清空 title 就不能加 `@IsNotEmpty()`；本次练习标题不可置空，与创建规则一致。 |
 | 2026-08-17 17:30 | 练习 6 四次 review：DTO/`!== undefined`/404/204 已齐。P0 剩 Controller 仍用 `"title" in dto`，空 PATCH `{}` 会 200 而不是 400。 |
 | 2026-08-17 17:31 | 练习 6 已改 `!== undefined`；提交并 push：Notes GET/PATCH/DELETE by id。 |
+| 2026-08-17 17:32 | 开练习 7 需求：Notes 列表分页 + 可选关键词（Query DTO、`skip`/`take`、`count`）。 |
+| 2026-08-17 17:34 | 学习轨校准：目标是熟练本仓库用到的 Nest（非无限刷题）。1–6 已覆盖模块/CRUD/DTO/上传/SSE/404；尚未达标。计划 7 分页 Query、8 拦截器、9 自定义装饰器后收束。 |
+| 2026-08-17 18:03 | 练习 7 代码 review：Query DTO/`@Type`/`skip`/`take`/OR contains 已有。P0：`total` 用了当前页 `items.length`（缺 `count`）；Controller 把 `q=foo` 写死成 400。 |
+| 2026-08-17 18:08 | 练习 7 二次 review：count + Promise.all、去掉 foo 特判、IsOptional 已改。需求满足。剩 P1：where 条件重复、未使用的 IsNumber。 |
+| 2026-08-17 18:10 | 练习 7 三次 review：where 已抽变量、IsNumber 已删。可标完成。 |
+| 2026-08-17 18:11 | 练习 7 答疑：列表 `where` 类型用 `Prisma.NoteWhereInput`（可 `| undefined`）。 |
+| 2026-08-17 18:12 | 答疑：`prisma generate` 后每个 model 都有 `Prisma.<Model>WhereInput` 等配套类型。 |
+| 2026-08-17 18:15 | 提交并 push 练习 7：Notes 列表分页 + Query DTO + `count`/`skip`/`take`。 |
 
 ## NestJS 手写练习（学习轨）
 
 > 目的：在现有 `apps/api` 上亲手写代码学 Nest，不另起仓库。  
-> 约定：Agent **只先给需求**；用户自己实现；卡住再问。每次进度必须回写本文件。
+> 约定：Agent **只先给需求**；用户自己实现；卡住再问。每次进度必须回写本文件。  
+> **熟练标准（本仓库）**：能独立加一个与现网风格一致的功能模块（Module / Controller / Service / DTO / JWT / Prisma / 合适的 HTTP 状态码）。不是要学完 Nest 全集（微服务、GraphQL、CQRS 等本项目不用）。  
+> **进度（2026-08-17）**：**尚未达标。** 1–7 已覆盖 CRUD、上传、SSE、Query 分页。缺口：Interceptor、自定义装饰器。做完 **8 → 9** 后本轨收束。
 
 ### 练习 1 — 健康检查 ✅ 已完成
 
@@ -392,8 +402,49 @@ curl -N -X POST http://127.0.0.1:3000/api/ticks/stream -H "Authorization: Bearer
 
 卡住再问；做完喊 review。
 
+### 练习 7 — 列表分页与查询参数 ✅ 已完成
+
+目标：学会 **`@Query()` + Query DTO**（query 默认是字符串，要转成 number）、以及 Prisma **`skip` / `take` + `count`**。不要把全表查出来再在内存里切片。
+
+改造现有 `GET /api/notes`（仍走 `NotesModule`）。**不要新建模块、不要改 schema。** 练习 6 的 GET/PATCH/DELETE by id 保持不变。
+
+#### 功能需求
+
+1. **接口**（JWT）：`GET /api/notes`
+   - Query（建议 `ListNotesQueryDto` + `@Query()`）：
+     - `page`：缺省 **1**；整数且 ≥ 1
+     - `pageSize`：缺省 **10**；整数，范围 **1～50**
+     - `q`：可选字符串；有值时在 **title 或 content** 里模糊匹配（Prisma `contains` 即可；SQLite 一般大小写敏感，不必强求 insensitive）
+   - 非法 `page` / `pageSize`（如 `0`、`abc`、`pageSize=99`）→ **400**（交给 class-validator，中文或默认信息均可）
+2. **响应**：
+   ```json
+   { "total": 23, "page": 1, "pageSize": 10, "items": [ /* 当前页 */ ] }
+   ```
+   - `total` 是**过滤后的总条数**（不是当前页 `items.length`）
+   - `items` 仍按 `id` **倒序**
+   - `skip = (page - 1) * pageSize`，`take = pageSize`
+3. `count` 与 `findMany` 建议 `Promise.all` 一起查，条件要一致。
+4. **禁止**：全表 `findMany` 再 `slice`；改工时/配置洞察/files/ticks；为练习加新表。
+
+#### 提示
+
+- `main.ts` 已有 `ValidationPipe({ transform: true })`。数字 query 要用 `class-transformer` 的 `@Type(() => Number)`，否则 `"1"` 进不了 `@IsInt()`。
+- `@IsOptional()` 对缺省 query 生效；缺省值可在 DTO 里写 `page = 1`，或在 Service 里兜底。
+- 配置洞察的 `list(@Query('q') q?)` 是散装 query，这次请用 **一个 DTO**，不要学它拆成多个 `@Query('page')`。
+
+#### 验收
+
+- 无 Token → 401
+- `GET /api/notes` → `page=1`、`pageSize=10`，`total` 与全量条数一致
+- 至少造 12 条后：`pageSize=5&page=2` → 5 条，且与第 6～10 条（按 id 倒序）对得上
+- `q` 能筛到标题或内容里包含关键字的记录；`total` 随筛选变
+- `page=0` / `pageSize=99` / `page=foo` → 400
+- `GET /api/notes/:id` 不受影响
+
+卡住再问；做完喊 review。
+
 ## 下一对话建议开场动作
 
-1. NestJS 练习 1–6 已完成；下一项练习待开需求。  
+1. NestJS 练习 1–7 已完成；下一练习为 8（Interceptor）。  
 2. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
 3. `npm run start:dev`（注意勿多开占 3000）。

@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import type { Note } from '@prisma/client';
+import type { Note, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateNoteDto, UpdateNoteDto } from './dto/create-note.dto';
 
@@ -11,11 +11,29 @@ export class NotesService {
    * 查询所有备忘录
    * @returns 备忘录列表 {total: number, items: Note[]} 其中items{@link Note}
    */
-  async getAllNotes(): Promise<{ total: number; items: Note[] }> {
-    const notes = await this.prisma.note.findMany({ orderBy: { id: 'desc' } });
+  async getAllNotes(page: number, pageSize: number, q?: string): Promise<{ total: number; page: number; pageSize: number; items: Note[] }> {
+    const where: Prisma.NoteWhereInput | undefined = q ? {
+      OR: [
+        { title: { contains: q } },
+        { content: { contains: q } },
+      ]
+    } : undefined;
+    const [ total, items ] = await Promise.all([
+      this.prisma.note.count({
+        where
+      }),
+      this.prisma.note.findMany({
+        orderBy: { id: 'desc' },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        where
+      }),
+    ]);
     return {
-      total: notes.length,
-      items: notes,
+      total: total,
+      page: page,
+      pageSize: pageSize,
+      items: items,
     };
   }
 
