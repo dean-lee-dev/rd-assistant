@@ -293,13 +293,24 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-18 15:02 | 练习 9 二次 review：相对路径、auth/me、notes/me 顺序已齐。可标完成。P1：`JwtUser` 未 export；`data` 应可选；装饰器返回类型不能写成永远是 `JwtUser`。 |
 | 2026-08-18 15:08 | 练习 9 三次 review：已 export `JwtUser`、`data` 可选、返回类型覆盖字段/整对象。可标完成。 |
 | 2026-08-18 15:10 | 提交并 push 练习 9：`@CurrentUser()` + `/api/notes/me`。开练习 10 需求：全局 Request-Id 中间件。 |
+| 2026-08-18 18:41 | 练习 10 代码 review：`NestMiddleware` + `forRoutes('*')` + `next()` + 沿用/生成 id 已有。P0：未把 id 挂到 `req`。P1：无用 `getHeaders`、未 `implements NestModule`。 |
+| 2026-08-18 18:49 | 练习 10 二次 review：已挂 `req.requestId`、`implements NestModule`、`node:crypto`。P0：入站头应读 `x-request-id`（Node 会把头名转小写），现在读 `X-Request-Id` 会永远生成新 id。 |
+| 2026-08-18 18:51 | 练习 10 答疑：`res.setHeader('X-Request-Id')` 是把 id 回给客户端，和挂到 `req` 给服务端后续用不是一回事。 |
+| 2026-08-18 18:52 | 练习 10 答疑：`req.requestId = ...` 把 id 挂在同一请求对象上，供后面 Guard/Interceptor/日志读取。 |
+| 2026-08-18 18:53 | 练习 10 答疑：`req.requestId` 不是请求头，客户端看不到；客户端能看到的是响应头 `X-Request-Id`。 |
+| 2026-08-18 18:54 | 练习 10 答疑：中间件把 `req` 标成 `FastifyRequest['raw']`（IncomingMessage）时 `url` 可选且 Fastify 不一定写回 raw；路径在 FastifyRequest.url。 |
+| 2026-08-18 18:57 | 练习 10 排错：终端是 `GET+/+my-id-1`，`url` 实际是 `/` 不是 undefined。Nest `forRoutes('*')` + 全局前缀 `/api` 会剥路径；中间件应读 `originalUrl`。 |
+| 2026-08-18 19:00 | 练习 10 答疑：解释全局前缀 + `forRoutes('*')` 如何把中间件里的 `req.url` 剥成 `/`。 |
+| 2026-08-18 19:03 | 练习 10 答疑：只剥 `/api` 应得 `/notes`；实际是 `/` 因为 `{*path}` 把后面整段也匹配掉了。 |
+| 2026-08-18 19:04 | 练习 10 答疑：`forRoutes('*')` 改写法也难让 `req.url` 变成 `/notes`；Nest 是按整条路由匹配，不是 Express 的 `app.use('/api')`。完整路径用 `originalUrl`。 |
+| 2026-08-18 19:06 | 提交并 push 练习 10：全局 Request-Id 中间件（沿用入站头、挂 `req.requestId`、响应头回传）。 |
 
 ## NestJS 手写练习（学习轨）
 
 > 目的：在现有 `apps/api` 上亲手写代码学 Nest，不另起仓库。  
 > 约定：Agent **只先给需求**；用户自己实现；卡住再问。每次进度必须回写本文件。  
 > **熟练标准（本仓库）**：能独立加一个与现网风格一致的功能模块（Module / Controller / Service / DTO / JWT / Prisma / 合适的 HTTP 状态码）。不是要学完 Nest 全集（微服务、GraphQL、CQRS 等本项目不用）。  
-> **进度（2026-08-18）**：基础轨 1–9 完成。进阶轨练习 10（Middleware）需求已开；11 起未开工。**不要**加 GraphQL/微服务。
+> **进度（2026-08-18）**：基础轨 1–9 + 进阶 10（Middleware）完成。下一练习为 11（自写 Guard）。**不要**加 GraphQL/微服务。
 
 ### 练习 1 — 健康检查 ✅ 已完成
 
@@ -530,7 +541,7 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 
 卡住再问；做完喊 review。
 
-### 练习 10 — Middleware（Request-Id）
+### 练习 10 — Middleware（Request-Id） ✅ 已完成
 
 目标：学会 Nest **中间件**（在 Guard / Interceptor **之前**）。全站每个请求一个 `X-Request-Id`，和练习 8 只挂在 Notes 上的拦截器区分开。
 
@@ -637,11 +648,11 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 **9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18**  
 先把请求链在现有进程里看清楚，再引入 PG/Redis，最后才是队列（否则排错时分不清是 Nest 还是基础设施）。
 
-下一步：练习 10 需求已开（Middleware Request-Id）。
+下一步：练习 10 已完成；下一题为 11（自写 Guard）。
 
 ## 下一对话建议开场动作
 
-1. 用户实现练习 10，或卡住提问。  
+1. 开练习 11 详细需求，或用户说「练习 11」开始做。  
 2. 进阶轨 11 起未开工；勿提前改 schema/compose。  
 3. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
 4. `npm run start:dev`（注意勿多开占 3000）。

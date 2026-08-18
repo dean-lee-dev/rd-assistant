@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, MiddlewareConsumer, NestModule } from '@nestjs/common';
 import { ensureDataDirs } from './common/paths';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -10,6 +10,7 @@ import { HealthModule } from './health/health.module';
 import { NotesModule } from './notes/notes.module';
 import { FilesModule } from './files/files.module';
 import { TicksModule } from './ticks/ticks.module';
+import { RequestIdMiddleware } from './common/request-id.middleware';
 ensureDataDirs();
 
 @Module({
@@ -26,4 +27,8 @@ ensureDataDirs();
     TicksModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestIdMiddleware).forRoutes("*");
+  }
+}
