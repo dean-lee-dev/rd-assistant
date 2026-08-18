@@ -283,13 +283,18 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-18 09:59 | 练习 8 二次 review：request 只取一次、实例 Logger 已改。头值仍是纯数字（缺 `ms`）。可标完成。 |
 | 2026-08-18 10:01 | 练习 8 三次 review：Logger 升为类字段，`X-Response-Time` 已带 `ms`。可标完成。 |
 | 2026-08-18 10:03 | 提交并 push 练习 8：Notes 耗时拦截器 + `X-Response-Time`。 |
+| 2026-08-18 10:21 | 用户问练习 9 与总数：本轨共 **9** 项；9 为自定义参数装饰器（如 `@CurrentUser()`），做完收束。 |
+| 2026-08-18 10:23 | 澄清「对这个项目够用」：指本仓库用到的 Nest 原语练完，不是 Nest 全集学完。 |
+| 2026-08-18 10:25 | 用户问「练常用 Nest 要扩展什么功能」：不为此硬加 GraphQL/微服务；若要练，优先 AI 限流、改密、Config、异步任务、定时、测试。 |
+| 2026-08-18 10:45 | 用户新目标：掌握 HTTP 全链路（Middleware→Guard→Interceptor→Pipe→Controller→Service→ORM→DB）并结合 JWT/DTO/校验/异常/PG/Redis/Queue/Docker。已写入「进阶轨」设计；基础轨仍先完成练习 9。技术方案暂不改（尚未开工迁 PG）。 |
+| 2026-08-18 10:48 | 提交并 push 进阶轨设计（练习 9–18 与 AI 任务中心）；练习暂缓。 |
 
 ## NestJS 手写练习（学习轨）
 
 > 目的：在现有 `apps/api` 上亲手写代码学 Nest，不另起仓库。  
 > 约定：Agent **只先给需求**；用户自己实现；卡住再问。每次进度必须回写本文件。  
 > **熟练标准（本仓库）**：能独立加一个与现网风格一致的功能模块（Module / Controller / Service / DTO / JWT / Prisma / 合适的 HTTP 状态码）。不是要学完 Nest 全集（微服务、GraphQL、CQRS 等本项目不用）。  
-> **进度（2026-08-18）**：**尚未达标。** 1–8 已覆盖 CRUD、上传、SSE、Query 分页、Interceptor。缺口：自定义装饰器。做完 **9** 后本轨收束。
+> **进度（2026-08-18）**：基础轨 1–8 完成，**练习 9 未做**。用户另定进阶目标（全链路 + PG/Redis/Queue/Docker），见下方「进阶轨」；**不要**为此加 GraphQL/微服务。
 
 ### 练习 1 — 健康检查 ✅ 已完成
 
@@ -483,8 +488,85 @@ curl -N -X POST http://127.0.0.1:3000/api/ticks/stream -H "Authorization: Bearer
 
 卡住再问；做完喊 review。
 
+## 进阶轨（2026-08-18 目标：全链路 + 基础设施）
+
+> **一条业务主线，不要拆成互不相关的玩具。**  
+> 产品：**AI 任务中心** — 周报生成 / 配置洞察分析改为可排队的后台任务；带 JWT、限流、进度查询。  
+> 本地仍可先 SQLite 把链路跑通；PG/Redis 用 Docker Compose 起，本机 PG 若自装目录偏好 `D:\software\pg`。  
+> 约定仍是：Agent 只先给当阶段需求；用户实现；review。未开工前不改 `docs/10001/技术方案.md` 的默认 DB。
+
+### 缺口对照
+
+| 链路 / 能力 | 现状 | 进阶怎么补 |
+|-------------|------|------------|
+| HTTP Request | Fastify | 保持 |
+| Middleware | 无 | Request-Id，写入 log |
+| Guard | **使用**现成 JWT，没自己写 | 自写 `AiQuotaGuard`（配额） |
+| Interceptor | Notes 耗时头 | 可复用；任务接口打 Request-Id |
+| Pipe | **使用** ValidationPipe / ParseIntPipe | 自写 Trim 或日期 Pipe |
+| Controller / Service / ORM | 已熟 | 任务模块 |
+| Database | Prisma **SQLite** | 迁 **PostgreSQL** |
+| JWT / DTO / Validation | 已熟 | 任务创建 DTO；`@CurrentUser()` |
+| Exception | 抛 Nest 异常 + 上传 Filter | Prisma/队列错误统一 Filter |
+| Redis | 无 | 配额、任务状态、限流 |
+| Queue | 无 | BullMQ：AI 生成进 worker |
+| Docker | api+web+nginx，无 DB/Redis | compose 加 postgres、redis、worker |
+
+不做：GraphQL、微服务拆仓库、多租户角色（仍单用户）。
+
+### 阶段 A — 补全 Nest 请求链（仍 SQLite）
+
+业务：给 Notes 或即将出现的「任务」接口走完整链；**改密**用上 `@CurrentUser()`。
+
+| 练习 | 练什么 | 落在产品上 |
+|------|--------|------------|
+| **9** | `createParamDecorator` + JWT `request.user` | `@CurrentUser()`；`GET /api/auth/me` 与 Notes 各用一处 |
+| **10** | Middleware | 每个请求生成 `X-Request-Id`，Logger 带上 |
+| **11** | 自写 Guard | `AiQuotaGuard`：未登录 401（仍 JWT）；超额 429。先把计数放 SQLite/内存，C 阶段再换 Redis |
+| **12** | 自写 Pipe | 例如 TrimPipe，挂在创建任务/改密的字符串字段 |
+| **13** | Exception Filter | Prisma `P2025` → 404；未知错 500 中文；**不要拆掉**现有上传 Filter |
+
+验收：一张请求从进到出能在 log 里看到 requestId；无 Token 停在 Guard；非法 body 停在 Pipe；Controller 不再手写 `req.user`。
+
+### 阶段 B — PostgreSQL + Docker 数据面
+
+业务：库换成 PG，compose 可一键起。**不迁旧 SQLite 业务数据**（与现决策一致，seed 即可）。
+
+| 练习 | 练什么 | 落在产品上 |
+|------|--------|------------|
+| **14** | Prisma datasource PG；新 migration 基线 | `DATABASE_URL`；本地 compose `postgres` 或 `D:\software\pg` |
+| **15** | Docker | compose：`postgres` + 现有 `api`/`web`；api 等 PG healthy 再启动 |
+
+验收：`docker compose up` 能登录；SQLite 文件不再作为生产路径（本地无 compose 时可用 env 切回 SQLite **仅若你仍要双引擎，否则 B 之后只保留 PG**）。
+
+### 阶段 C — Redis + Queue（AI 任务中心）
+
+业务（真正扩展）：
+
+1. `POST /api/jobs/weekly-report`（JWT + DTO + QuotaGuard）：入队「生成周报」，立即返回 `{ jobId, status: queued }`  
+2. Worker 调现有 AI 逻辑，结果写入 PG  
+3. `GET /api/jobs/:id` 查状态：`queued | active | completed | failed`  
+4. 前端周报页可轮询或继续用 SSE 订阅进度（二选一，先轮询更简单）  
+5. Redis：任务状态/限流计数；BullMQ 用同一 Redis
+
+| 练习 | 练什么 | 落在产品上 |
+|------|--------|------------|
+| **16** | Redis | 配额计数从 A 的内存/SQLite 迁到 Redis |
+| **17** | Queue + Worker | compose 加 `redis`、`worker`（可与 api 同镜像不同 `command`） |
+| **18** | 联调全链路 | 带 Token 入队 → worker 跑 → GET 完成；超额 429；非法 DTO 400 |
+
+现有同步 `generate-report` 可保留作开发开关，或逐步改成入队，避免两套长期分叉。
+
+### 建议顺序
+
+**9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18**  
+先把请求链在现有进程里看清楚，再引入 PG/Redis，最后才是队列（否则排错时分不清是 Nest 还是基础设施）。
+
+下一步：先开 **练习 9** 的详细需求（装饰器 + JWT），A 阶段其它题做完再给。
+
 ## 下一对话建议开场动作
 
-1. NestJS 练习 1–8 已完成；下一练习为 9（自定义装饰器）。  
-2. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
-3. `npm run start:dev`（注意勿多开占 3000）。
+1. 开练习 9 详细需求，或用户说「练习 9」开始做。  
+2. 进阶轨已设计，未开工；勿提前改 schema/compose。  
+3. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
+4. `npm run start:dev`（注意勿多开占 3000）。
