@@ -1,12 +1,13 @@
-import { Body, Controller, Get, Post, UseGuards, HttpStatus,Query,
+import { Body, Controller, Get, Post, UseGuards, HttpStatus,Query,UseInterceptors,
          ParseIntPipe, Param, Patch,Delete, BadRequestException, HttpCode } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import type { Note } from '@prisma/client';
 import { NotesService } from './notes.service';
 import { CreateNoteDto, UpdateNoteDto, ListNotesQueryDto } from './dto/create-note.dto';
-
+import { NotesLogInterceptor } from './notes-log.interceptor';
 @Controller('notes')
 @UseGuards(AuthGuard('jwt'))
+@UseInterceptors(NotesLogInterceptor)
 export class NotesController {
   constructor(private readonly noteService: NotesService) {}
 

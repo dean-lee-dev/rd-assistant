@@ -278,13 +278,18 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-17 18:11 | 练习 7 答疑：列表 `where` 类型用 `Prisma.NoteWhereInput`（可 `| undefined`）。 |
 | 2026-08-17 18:12 | 答疑：`prisma generate` 后每个 model 都有 `Prisma.<Model>WhereInput` 等配套类型。 |
 | 2026-08-17 18:15 | 提交并 push 练习 7：Notes 列表分页 + Query DTO + `count`/`skip`/`take`。 |
+| 2026-08-18 08:52 | 开练习 8 需求：仅挂在 Notes 上的拦截器（耗时日志 + `X-Response-Time`），禁止全局、禁止改 JSON 包一层。 |
+| 2026-08-18 09:55 | 练习 8 代码 review：`NestInterceptor` + 仅 Notes 挂载 + `next.handle().pipe(tap)` 已有，log 已打出。P1：头值缺 `ms`；`tap` 不覆盖 404；可用 `Date.now()` / 实例 Logger。 |
+| 2026-08-18 09:59 | 练习 8 二次 review：request 只取一次、实例 Logger 已改。头值仍是纯数字（缺 `ms`）。可标完成。 |
+| 2026-08-18 10:01 | 练习 8 三次 review：Logger 升为类字段，`X-Response-Time` 已带 `ms`。可标完成。 |
+| 2026-08-18 10:03 | 提交并 push 练习 8：Notes 耗时拦截器 + `X-Response-Time`。 |
 
 ## NestJS 手写练习（学习轨）
 
 > 目的：在现有 `apps/api` 上亲手写代码学 Nest，不另起仓库。  
 > 约定：Agent **只先给需求**；用户自己实现；卡住再问。每次进度必须回写本文件。  
 > **熟练标准（本仓库）**：能独立加一个与现网风格一致的功能模块（Module / Controller / Service / DTO / JWT / Prisma / 合适的 HTTP 状态码）。不是要学完 Nest 全集（微服务、GraphQL、CQRS 等本项目不用）。  
-> **进度（2026-08-17）**：**尚未达标。** 1–7 已覆盖 CRUD、上传、SSE、Query 分页。缺口：Interceptor、自定义装饰器。做完 **8 → 9** 后本轨收束。
+> **进度（2026-08-18）**：**尚未达标。** 1–8 已覆盖 CRUD、上传、SSE、Query 分页、Interceptor。缺口：自定义装饰器。做完 **9** 后本轨收束。
 
 ### 练习 1 — 健康检查 ✅ 已完成
 
@@ -443,8 +448,43 @@ curl -N -X POST http://127.0.0.1:3000/api/ticks/stream -H "Authorization: Bearer
 
 卡住再问；做完喊 review。
 
+### 练习 8 — 拦截器（Interceptor） ✅ 已完成
+
+目标：学会 Nest 的 **`NestInterceptor`**：在 Controller **之前/之后**插一刀，返回值是 **RxJS Observable**（必须 `return next.handle()...`）。这次只做副作用（日志 + 响应头），**不要改 JSON 形状**。
+
+#### 功能需求
+
+1. **新建**拦截器（建议 `apps/api/src/notes/notes-log.interceptor.ts`，实现 `NestInterceptor`）。
+2. **只挂在 `NotesController` 上**：类上 `@UseInterceptors(...)`。  
+   **禁止** `app.useGlobalInterceptors` / `APP_INTERCEPTOR`（会作用到工时、登录、健康检查）。
+3. 行为：
+   - 用 `ExecutionContext.switchToHttp().getRequest()` 取 method、url（Fastify request 即可）
+   - 记录开始时间，**必须** `return next.handle().pipe(...)`
+   - 响应发出前/发出时：
+     - 响应头 **`X-Response-Time`**，值形如 `12ms`
+     - 用 Nest `Logger` 打一行：`GET /api/notes?page=1 12ms`（格式自定，但要有方法、路径、毫秒）
+   - 用 `tap`（只关心成功）或 `finalize`（成功/失败都记耗时）都可以；**404 仍应是 404**，不要吞异常
+4. **JSON body 保持原样**（列表仍是 `{ total, page, pageSize, items }`，不要包 `{ data: ... }`）。
+5. **禁止**：改工时/配置洞察/files/ticks 业务；改 `main.ts` 全局拦截器；用 Express `Response`。
+
+#### 提示
+
+- 拦截器里忘记 `return next.handle()`，请求会一直挂起。
+- `tap` 在 Observable **成功发出**时跑；`NotFoundException` 走 error 通道，若希望 404 也有耗时头，用 `finalize`。
+- 现有 `UploadExceptionFilter` 是 **Filter**（抓异常），和 Interceptor 不是一回事，不要改它。
+- 无依赖的拦截器不必写进 `NotesModule.providers`；需要注入时才登记。
+
+#### 验收
+
+- `GET /api/notes`（带 Token）：body 与练习 7 相同；响应头有 `X-Response-Time`
+- 跑 api 的终端能看到对应 log 行
+- `GET /api/health`：**没有** `X-Response-Time`（证明不是全局）
+- `GET /api/notes/999999` → 仍 404（不是 200、不是被拦截器改成别的）
+
+卡住再问；做完喊 review。
+
 ## 下一对话建议开场动作
 
-1. NestJS 练习 1–7 已完成；下一练习为 8（Interceptor）。  
+1. NestJS 练习 1–8 已完成；下一练习为 9（自定义装饰器）。  
 2. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
 3. `npm run start:dev`（注意勿多开占 3000）。
