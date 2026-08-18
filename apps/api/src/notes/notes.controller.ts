@@ -5,6 +5,7 @@ import type { Note } from '@prisma/client';
 import { NotesService } from './notes.service';
 import { CreateNoteDto, UpdateNoteDto, ListNotesQueryDto } from './dto/create-note.dto';
 import { NotesLogInterceptor } from './notes-log.interceptor';
+import { CurrentUser, type JwtUser } from '../common/current-user.decorator';
 @Controller('notes')
 @UseGuards(AuthGuard('jwt'))
 @UseInterceptors(NotesLogInterceptor)
@@ -28,6 +29,11 @@ export class NotesController {
   @Post()
   create(@Body() dto: CreateNoteDto): Promise<Note> {
     return this.noteService.createNote(dto);
+  }
+
+  @Get('me')
+  getMeNotes(@CurrentUser() user: JwtUser): JwtUser {
+    return user;
   }
 
   @Get(':id')

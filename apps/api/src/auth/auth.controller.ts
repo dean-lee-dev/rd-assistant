@@ -1,7 +1,8 @@
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Post, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { IsString, MinLength } from 'class-validator';
 import { AuthService } from './auth.service';
+import { CurrentUser } from '../common/current-user.decorator';
 
 class LoginDto {
   @IsString()
@@ -23,7 +24,7 @@ export class AuthController {
 
   @UseGuards(AuthGuard('jwt'))
   @Get('me')
-  me(@Req() req: { user: { userId: number } }) {
-    return this.auth.me(req.user.userId);
+  me(@CurrentUser('userId') userId: number) {
+    return this.auth.me(userId);
   }
 }

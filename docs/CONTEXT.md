@@ -288,13 +288,18 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-18 10:25 | 用户问「练常用 Nest 要扩展什么功能」：不为此硬加 GraphQL/微服务；若要练，优先 AI 限流、改密、Config、异步任务、定时、测试。 |
 | 2026-08-18 10:45 | 用户新目标：掌握 HTTP 全链路（Middleware→Guard→Interceptor→Pipe→Controller→Service→ORM→DB）并结合 JWT/DTO/校验/异常/PG/Redis/Queue/Docker。已写入「进阶轨」设计；基础轨仍先完成练习 9。技术方案暂不改（尚未开工迁 PG）。 |
 | 2026-08-18 10:48 | 提交并 push 进阶轨设计（练习 9–18 与 AI 任务中心）；练习暂缓。 |
+| 2026-08-18 14:10 | 开练习 9 需求：`createParamDecorator` 的 `@CurrentUser()`；改 `GET /api/auth/me`，Notes 增加 `GET /api/notes/me`。 |
+| 2026-08-18 14:57 | 练习 9 代码 review：装饰器/`auth/me`/`GET notes/me` 在 `:id` 前已有。P0：`from 'src/...'` 应改相对路径。P1：缺 `JwtUser` 类型、无用 import、方法上重复 JWT Guard。 |
+| 2026-08-18 15:02 | 练习 9 二次 review：相对路径、auth/me、notes/me 顺序已齐。可标完成。P1：`JwtUser` 未 export；`data` 应可选；装饰器返回类型不能写成永远是 `JwtUser`。 |
+| 2026-08-18 15:08 | 练习 9 三次 review：已 export `JwtUser`、`data` 可选、返回类型覆盖字段/整对象。可标完成。 |
+| 2026-08-18 15:10 | 提交并 push 练习 9：`@CurrentUser()` + `/api/notes/me`。开练习 10 需求：全局 Request-Id 中间件。 |
 
 ## NestJS 手写练习（学习轨）
 
 > 目的：在现有 `apps/api` 上亲手写代码学 Nest，不另起仓库。  
 > 约定：Agent **只先给需求**；用户自己实现；卡住再问。每次进度必须回写本文件。  
 > **熟练标准（本仓库）**：能独立加一个与现网风格一致的功能模块（Module / Controller / Service / DTO / JWT / Prisma / 合适的 HTTP 状态码）。不是要学完 Nest 全集（微服务、GraphQL、CQRS 等本项目不用）。  
-> **进度（2026-08-18）**：基础轨 1–8 完成，**练习 9 未做**。用户另定进阶目标（全链路 + PG/Redis/Queue/Docker），见下方「进阶轨」；**不要**为此加 GraphQL/微服务。
+> **进度（2026-08-18）**：基础轨 1–9 完成。进阶轨练习 10（Middleware）需求已开；11 起未开工。**不要**加 GraphQL/微服务。
 
 ### 练习 1 — 健康检查 ✅ 已完成
 
@@ -488,6 +493,76 @@ curl -N -X POST http://127.0.0.1:3000/api/ticks/stream -H "Authorization: Bearer
 
 卡住再问；做完喊 review。
 
+### 练习 9 — 自定义参数装饰器 `@CurrentUser()` ✅ 已完成
+
+目标：学会 **`createParamDecorator`**：Guard 把 JWT 用户挂到 `request.user` 之后，Controller 用 `@CurrentUser()` 取出，不再写 `@Req() req` 再 `req.user`。
+
+Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, username }`，Guard 通过后这就是 `request.user`。装饰器只是把它取出来。
+
+#### 功能需求
+
+1. **新建**（建议 `apps/api/src/common/current-user.decorator.ts` 或 `auth/` 下同名）：
+   - `export type JwtUser = { userId: number; username: string }`（与 `validate()` 返回值对齐）
+   - `export const CurrentUser = createParamDecorator(...)`
+   - 从 `ExecutionContext.switchToHttp().getRequest()` 取 `user`
+   - **支持可选参数**：`@CurrentUser()` 返回整个 `JwtUser`；`@CurrentUser('userId')` 只返回 `userId`（用 decorator 的 `data` 参数）
+2. **改** `GET /api/auth/me`：去掉 `@Req()` / `req.user`，改为 `@CurrentUser()`（或 `@CurrentUser('userId')`）。响应仍是 `{ id, username }`，行为与现在一致。
+3. **Notes 用一处**（证明装饰器可跨模块）：新增  
+   `GET /api/notes/me`（JWT）  
+   - 返回 `{ userId, username }`（来自装饰器，不必再查库）  
+   - **路由必须写在 `GET /api/notes/:id` 前面**，否则 `me` 会被当成 id
+4. 这些接口仍要 `AuthGuard('jwt')`。无 Token → 401。
+5. **禁止**：改 `JwtStrategy` 的 payload 形状；改登录接口；改密（以后的题）；给 Note 加 `userId` 字段；改工时/配置洞察。
+
+#### 提示
+
+- 装饰器在 **Guard 之后** 才有 `request.user`。没有 JWT Guard 的路由上用 `@CurrentUser()` 会拿到 `undefined`。
+- Fastify 的 request 一样有 `.user`（Passport 挂上的），不要上 Express 类型硬转一堆。
+- `createParamDecorator` 的回调是 `(data, ctx) => ...`，`data` 就是 `@CurrentUser('userId')` 里的 `'userId'`。
+
+#### 验收
+
+- 无 Token 调 `/api/auth/me`、`/api/notes/me` → 401
+- 带 Token：`GET /api/auth/me` 仍返回当前用户 `{ id, username }`
+- 带 Token：`GET /api/notes/me` 返回 `{ userId, username }`，与 token 里的人一致
+- `GET /api/notes/1` 仍按 id 查备忘录（没有被 `me` 抢走）
+- `auth.controller.ts` 里不再出现 `req.user`
+
+卡住再问；做完喊 review。
+
+### 练习 10 — Middleware（Request-Id）
+
+目标：学会 Nest **中间件**（在 Guard / Interceptor **之前**）。全站每个请求一个 `X-Request-Id`，和练习 8 只挂在 Notes 上的拦截器区分开。
+
+链路位置：`Request → Middleware → Guard → Interceptor → Pipe → Controller`。
+
+#### 功能需求
+
+1. **新建** `NestMiddleware`（建议 `apps/api/src/common/request-id.middleware.ts`）。
+2. 在 **`AppModule` 实现 `NestModule`**，`configure(consumer)` 里 `apply(...).forRoutes('*')`（或等价的全路由）。这是全局的，**包括** `/api/health`、登录。
+3. 行为：
+   - id：若请求头已有 `x-request-id`（任意大小写按 HTTP 惯例读取）则沿用，否则 `crypto.randomUUID()`（`node:crypto`，不要为这个加 uuid 包）
+   - 写入响应头 **`X-Request-Id`**
+   - 把 id 挂到 request 上（如 `req.requestId`），后面拦截器/日志能拿到
+   - Nest `Logger` 打一行：方法 + url + requestId（**只记进入，不要在中间件里算耗时**，耗时仍是练习 8 拦截器的事）
+   - **必须调用 `next()`**，否则请求会挂住
+4. **禁止**：只用 Fastify `addHook` 代替 Nest 中间件（本练习就是为了 `NestMiddleware` + `NestModule`）；不要改练习 8 的 JSON；不要改工时/配置洞察业务；不要拆掉 JWT。
+
+#### 提示
+
+- Fastify 下 `res` 更像 FastifyReply，设头用 `res.header(...)` 或适配层提供的 `setHeader`，以你本机能设上为准。
+- 中间件参数是 `(req, res, next)`，不是 `ExecutionContext`（那是 Guard/Interceptor/装饰器）。
+- `GET /api/health` **应该有** `X-Request-Id`（证明全局）；练习 8 的 `X-Response-Time` 在 health 上仍然 **没有**。
+
+#### 验收
+
+- `GET /api/health`：响应头有 `X-Request-Id`；终端有对应 log
+- `GET /api/notes`（带 Token）：同时有 `X-Request-Id` 和 `X-Response-Time`
+- 请求自带 `X-Request-Id: my-id-1` 时，响应原样回传 `my-id-1`（不要再生成新的）
+- 忘记 `next()` 会表现为接口一直转圈 —— 别忘了
+
+卡住再问；做完喊 review。
+
 ## 进阶轨（2026-08-18 目标：全链路 + 基础设施）
 
 > **一条业务主线，不要拆成互不相关的玩具。**  
@@ -562,11 +637,11 @@ curl -N -X POST http://127.0.0.1:3000/api/ticks/stream -H "Authorization: Bearer
 **9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18**  
 先把请求链在现有进程里看清楚，再引入 PG/Redis，最后才是队列（否则排错时分不清是 Nest 还是基础设施）。
 
-下一步：先开 **练习 9** 的详细需求（装饰器 + JWT），A 阶段其它题做完再给。
+下一步：练习 10 需求已开（Middleware Request-Id）。
 
 ## 下一对话建议开场动作
 
-1. 开练习 9 详细需求，或用户说「练习 9」开始做。  
-2. 进阶轨已设计，未开工；勿提前改 schema/compose。  
+1. 用户实现练习 10，或卡住提问。  
+2. 进阶轨 11 起未开工；勿提前改 schema/compose。  
 3. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
 4. `npm run start:dev`（注意勿多开占 3000）。
