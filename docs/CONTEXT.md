@@ -31,7 +31,8 @@
 10. 文件本地存储。
 11. 工时 ai小助手对话：Markdown 渲染 + SSE 流式。
 12. **（2026-07-29）部署形态：单台云主机 + Docker Compose + nginx 反代，前端静态文件同源托管。**
-13. **（2026-08-07）DB 演进：当前 Prisma SQLite；上云后再切 PostgreSQL（本机若装 PG，目录偏好 `D:\software\pg`，避免占 C 盘）。HTTP 层为 Nest Fastify。**
+13. **（2026-08-07）DB 演进：当前 Prisma SQLite；上云后再切 PostgreSQL。HTTP 层为 Nest Fastify。**  
+    **（2026-08-19）本机已装 PostgreSQL 17.11**，目录 `D:\software\PostgreSQL\17`（`bin\psql.exe`）。迁库仍走练习 14–15，**尚未改 schema / 不迁旧 SQLite 业务数据**。
 14. **（2026-07-29）上线原则：只做「影响上线部署」的改动，且所有改动必须兼容本地运行（默认值保持现状，靠环境变量/`isDevMode()` 区分）。**
 
 > ⚠️ **运维建议（Prisma SQLite 期间）**：仍建议单实例（并发写友好度有限）。compose 勿加 `replicas`；多实例等迁 PG。
@@ -304,13 +305,19 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-18 19:03 | 练习 10 答疑：只剥 `/api` 应得 `/notes`；实际是 `/` 因为 `{*path}` 把后面整段也匹配掉了。 |
 | 2026-08-18 19:04 | 练习 10 答疑：`forRoutes('*')` 改写法也难让 `req.url` 变成 `/notes`；Nest 是按整条路由匹配，不是 Express 的 `app.use('/api')`。完整路径用 `originalUrl`。 |
 | 2026-08-18 19:06 | 提交并 push 练习 10：全局 Request-Id 中间件（沿用入站头、挂 `req.requestId`、响应头回传）。 |
+| 2026-08-19 13:40 | 用户本机已装 PostgreSQL **17.11**（`D:\software\PostgreSQL\17`）。进阶轨阶段 B（练习 14–15）可用此实例；当前仍 SQLite，下一练习仍是 11（Guard）。 |
+| 2026-08-19 13:42 | 开练习 11 需求：自写 `AiQuotaGuard`（JWT 之后、内存计数、超额 429），挂在 `POST /api/ticks/stream`。 |
+| 2026-08-19 14:31 | 练习 11 代码 review：CanActivate + 429 + 方法级挂载已有。P0：`user.id` 应为 `userId`（JWT 没有 `id`），无 user 时会 500 而不是 401。 |
+| 2026-08-19 14:34 | 练习 11 答疑：JWT Guard 在本路由上会先拦无 Token；配额 Guard 仍校验 user 是防漏挂 JWT、以及 TypeScript/运行时 `user` 可能为空。P1 剩：`Logger.log(user)`、Map 键类型。 |
+| 2026-08-19 14:35 | 练习 11 二次 review：`userId`、无 user 401、`Map<number,number>`、`>= 3`、providers 已齐。可标完成。P1：仍有 `Logger.log(user)`。 |
+| 2026-08-19 14:37 | 提交并 push 练习 11：`AiQuotaGuard` 挂 `POST /api/ticks/stream`。开练习 12 需求：自写 `TrimPipe`。 |
 
 ## NestJS 手写练习（学习轨）
 
 > 目的：在现有 `apps/api` 上亲手写代码学 Nest，不另起仓库。  
 > 约定：Agent **只先给需求**；用户自己实现；卡住再问。每次进度必须回写本文件。  
 > **熟练标准（本仓库）**：能独立加一个与现网风格一致的功能模块（Module / Controller / Service / DTO / JWT / Prisma / 合适的 HTTP 状态码）。不是要学完 Nest 全集（微服务、GraphQL、CQRS 等本项目不用）。  
-> **进度（2026-08-18）**：基础轨 1–9 + 进阶 10（Middleware）完成。下一练习为 11（自写 Guard）。**不要**加 GraphQL/微服务。
+> **进度（2026-08-19）**：1–11 完成。练习 12（TrimPipe）需求已开。PG 17 已装、尚未切库。
 
 ### 练习 1 — 健康检查 ✅ 已完成
 
@@ -574,11 +581,79 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 
 卡住再问；做完喊 review。
 
+### 练习 11 — 自写 Guard（配额） ✅ 已完成（可按 P1 小清理）
+
+目标：学会自己实现 **`CanActivate`**。JWT 是**使用**现成 `AuthGuard('jwt')`；这次要**手写**一个 Guard。位置在 Middleware **之后**、Interceptor **之前**。
+
+先不接 Redis（练习 16 再换）。计数放 **内存**（进程一重启就清零）。
+
+不要改工时/配置洞察的 AI 接口。用练习 5 的 ticks 当作「贵」的接口来限流。
+
+#### 功能需求
+
+1. **新建** `AiQuotaGuard`（建议 `apps/api/src/common/ai-quota.guard.ts`），`implements CanActivate`，加 `@Injectable()`。
+2. `canActivate(context: ExecutionContext): boolean`：
+   - 从 `context.switchToHttp().getRequest()` 取 `user`（即 JWT 的 `JwtUser`）
+   - **没有 `user` → 401**（说明没走 JWT 或 JWT 失败）。正常情况不应发生：必须把本 Guard 写在 JWT **后面**
+   - 按 `userId` 在内存 `Map` 里计数；每个 userId、当前进程内，调用超过 **3** 次 → `throw new HttpException('AI 调用次数已达上限', HttpStatus.TOO_MANY_REQUESTS)`（HTTP **429**）
+   - 未超限：次数 +1，`return true`
+3. **只挂在** `POST /api/ticks/stream` 上，例如：  
+   `@UseGuards(AuthGuard('jwt'), AiQuotaGuard)`  
+   顺序必须是 **JWT 在前、配额在后**。类上若已有 JWT，方法上再补配额 Guard 即可（不要把配额接到整个 Notes/Health）。
+4. Guard 若要注入依赖，在 `TicksModule.providers` 登记；无依赖时 Nest 也能实例化，但写上更稳妥。
+5. **禁止**：`@nestjs/throttler`（本练习就是自己写）；Redis；改 worktime/sys-params；改登录/health；把配额做成全局 APP_GUARD。
+
+#### 提示
+
+- Guard 里 `return false` 默认变成 403，配额超额应明确 **429**，所以用 `throw`，不要只 `return false`。
+- 内存 Map 放在 Guard 实例上即可（Nest 默认单例）。
+- 调试：连续打 4 次 `POST /api/ticks/stream`（带 Token、`{"n":1}` 较快），第 4 次 429；重启 `start:dev` 后计数归零。
+
+#### 验收
+
+- 无 Token → 401（JWT，还没到配额）
+- 带 Token：前 3 次 `POST /api/ticks/stream` 成功（SSE 正常）
+- 第 4 次 → **429**，中文提示
+- `GET /api/health`、`GET /api/notes` 不受影响（没有配额 Guard）
+
+卡住再问；做完喊 review。
+
+### 练习 12 — 自写 Pipe（Trim）
+
+目标：学会 **`PipeTransform`**。位置在 Guard **之后**、Controller **之前**。全局已有 `ValidationPipe`（校验 DTO）；这次手写一个去掉字符串首尾空格的 Pipe。
+
+`ParseIntPipe` 是**使用**现成的；这次要**自己写**。
+
+#### 功能需求
+
+1. **新建** `TrimPipe`（建议 `apps/api/src/common/trim.pipe.ts`），`implements PipeTransform`。
+2. `transform(value)`：
+   - 值是 **string** → `value.trim()`
+   - 值是 **普通对象**（如 JSON body）→ 只处理**第一层**的 string 字段（`title` / `content`），不要递归、不要改非 string
+   - 其它（number、undefined、文件上传那类）→ **原样返回**（避免弄坏 multipart）
+3. **只挂在备忘录写接口**，不要全局、不要改 `main.ts` 的 ValidationPipe：
+   - `POST /api/notes`：`create(@Body(TrimPipe) dto: CreateNoteDto)`
+   - `PATCH /api/notes/:id`：同样 `@Body(TrimPipe)`
+4. **禁止**：改工时/配置洞察；给上传接口挂 TrimPipe；用 class-transformer 的 `@Transform` 代替本练习（可以以后再用，这次必须是 Pipe 类）。
+
+#### 提示
+
+- 参数上的 Pipe 和全局 `ValidationPipe` 都会跑。常见顺序是**先全局校验、再参数 Pipe**，所以 `"   "`（全空格）可能先通过 `@IsNotEmpty()`，再被 trim 成 `""`。本练习验收只要求「有字的标题去掉首尾空格」即可。
+- 不要 `return false`；Pipe 是改值或 `throw`，不是 Guard。
+
+#### 验收
+
+- `POST /api/notes`，body `{ "title": "  周报  ", "content": "  内容  " }` → 库里 / 响应里 `title` 为 `"周报"`，`content` 为 `"内容"`（无首尾空格）
+- `GET /api/notes` 的 `q`、文件上传、ticks **不要**被 TrimPipe 改掉
+- 非法 DTO 仍 400（ValidationPipe 还在）
+
+卡住再问；做完喊 review。
+
 ## 进阶轨（2026-08-18 目标：全链路 + 基础设施）
 
 > **一条业务主线，不要拆成互不相关的玩具。**  
 > 产品：**AI 任务中心** — 周报生成 / 配置洞察分析改为可排队的后台任务；带 JWT、限流、进度查询。  
-> 本地仍可先 SQLite 把链路跑通；PG/Redis 用 Docker Compose 起，本机 PG 若自装目录偏好 `D:\software\pg`。  
+> 本地仍可先 SQLite 把链路跑通；PG 用本机 **17.11**（`D:\software\PostgreSQL\17`）或 Compose。Redis 用 Compose。  
 > 约定仍是：Agent 只先给当阶段需求；用户实现；review。未开工前不改 `docs/10001/技术方案.md` 的默认 DB。
 
 ### 缺口对照
@@ -648,11 +723,11 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 **9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18**  
 先把请求链在现有进程里看清楚，再引入 PG/Redis，最后才是队列（否则排错时分不清是 Nest 还是基础设施）。
 
-下一步：练习 10 已完成；下一题为 11（自写 Guard）。
+下一步：练习 12 需求已开（TrimPipe）。
 
 ## 下一对话建议开场动作
 
-1. 开练习 11 详细需求，或用户说「练习 11」开始做。  
-2. 进阶轨 11 起未开工；勿提前改 schema/compose。  
+1. 用户实现练习 12，或卡住提问。  
+2. PG 17 已装，迁库仍待练习 14；勿提前改 schema。  
 3. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
 4. `npm run start:dev`（注意勿多开占 3000）。

@@ -3,6 +3,7 @@ import { AuthGuard } from "@nestjs/passport"
 import { TicksService } from "./ticks.service";
 import type { FastifyReply } from "fastify";
 import { endSse, initSse, writeSse } from "../common/sse";
+import { AiQuotaGuard } from "../common/ai-quota.guard";
 
 @Controller('ticks')
 @UseGuards(AuthGuard("jwt"))
@@ -10,6 +11,7 @@ export class TicksController {
     constructor(private readonly ticksService: TicksService) {}
     
     @Post("/stream")
+    @UseGuards(AiQuotaGuard)
     async stream(
         @Body() body: { n?: number },
         @Res() reply: FastifyReply,

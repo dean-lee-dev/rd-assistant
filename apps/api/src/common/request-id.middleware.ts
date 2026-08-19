@@ -13,7 +13,7 @@ export class RequestIdMiddleware implements  NestMiddleware {
         const requestId = rawRqId || randomUUID();
         (req as unknown as { requestId?: string }).requestId = requestId;
         res.setHeader('X-Request-Id', requestId);
-        Logger.log(`${req.method}+${req.originalUrl || req.url}+${requestId}`);
+       /*  Logger.log(`${req.method}+${req.originalUrl || req.url}+${requestId}`); */
         next();
     }
 }
