@@ -6,6 +6,8 @@ import { NotesService } from './notes.service';
 import { CreateNoteDto, UpdateNoteDto, ListNotesQueryDto } from './dto/create-note.dto';
 import { NotesLogInterceptor } from './notes-log.interceptor';
 import { CurrentUser, type JwtUser } from '../common/current-user.decorator';
+import { TrimPipe } from '../common/trim.pipe';
+
 @Controller('notes')
 @UseGuards(AuthGuard('jwt'))
 @UseInterceptors(NotesLogInterceptor)
@@ -27,7 +29,7 @@ export class NotesController {
    * @returns 备忘录对象{@link Note}
    */
   @Post()
-  create(@Body() dto: CreateNoteDto): Promise<Note> {
+  create(@Body(TrimPipe<CreateNoteDto>) dto: CreateNoteDto): Promise<Note> {
     return this.noteService.createNote(dto);
   }
 
@@ -43,7 +45,7 @@ export class NotesController {
 
 
   @Patch(':id')
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateNoteDto): Promise<Note> {
+  update(@Param('id', ParseIntPipe) id: number, @Body(TrimPipe<UpdateNoteDto>) dto: UpdateNoteDto): Promise<Note> {
     if ( dto.title !== undefined || dto.content !== undefined ) {
       return this.noteService.updateNoteById(id, dto);
       

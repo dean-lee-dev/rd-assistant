@@ -311,13 +311,17 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-19 14:34 | 练习 11 答疑：JWT Guard 在本路由上会先拦无 Token；配额 Guard 仍校验 user 是防漏挂 JWT、以及 TypeScript/运行时 `user` 可能为空。P1 剩：`Logger.log(user)`、Map 键类型。 |
 | 2026-08-19 14:35 | 练习 11 二次 review：`userId`、无 user 401、`Map<number,number>`、`>= 3`、providers 已齐。可标完成。P1：仍有 `Logger.log(user)`。 |
 | 2026-08-19 14:37 | 提交并 push 练习 11：`AiQuotaGuard` 挂 `POST /api/ticks/stream`。开练习 12 需求：自写 `TrimPipe`。 |
+| 2026-08-20 16:37 | 练习 12 代码 review：Pipe + POST `@Body(TrimPipe)` 已有。P0：PATCH 未挂；对象里非 string（如缺省 `content`）也会 `.trim()` 会抛错。 |
+| 2026-08-20 16:42 | 练习 12 二次 review：顶层 string、PATCH 已挂。P0 仍在：对象字段未判断 `typeof === 'string'`，缺 `content` 时仍会 `.trim()` 抛错。 |
+| 2026-08-20 16:44 | 练习 12 三次 review：已加 `typeof === 'string'`，Logger 已删。可标完成。P1：未用的 `Logger` import、PATCH 仍写 `TrimPipe<CreateNoteDto>`。 |
+| 2026-08-20 16:45 | 提交并 push 练习 12：`TrimPipe` 挂 Notes POST/PATCH。开练习 13 需求：Prisma `P2025` → 404 Filter。 |
 
 ## NestJS 手写练习（学习轨）
 
 > 目的：在现有 `apps/api` 上亲手写代码学 Nest，不另起仓库。  
 > 约定：Agent **只先给需求**；用户自己实现；卡住再问。每次进度必须回写本文件。  
 > **熟练标准（本仓库）**：能独立加一个与现网风格一致的功能模块（Module / Controller / Service / DTO / JWT / Prisma / 合适的 HTTP 状态码）。不是要学完 Nest 全集（微服务、GraphQL、CQRS 等本项目不用）。  
-> **进度（2026-08-19）**：1–11 完成。练习 12（TrimPipe）需求已开。PG 17 已装、尚未切库。
+> **进度（2026-08-20）**：1–12 完成。练习 13（Exception Filter）需求已开。PG 17 已装、尚未切库。
 
 ### 练习 1 — 健康检查 ✅ 已完成
 
@@ -618,7 +622,7 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 
 卡住再问；做完喊 review。
 
-### 练习 12 — 自写 Pipe（Trim）
+### 练习 12 — 自写 Pipe（Trim） ✅ 已完成（可按 P1 小清理）
 
 目标：学会 **`PipeTransform`**。位置在 Guard **之后**、Controller **之前**。全局已有 `ValidationPipe`（校验 DTO）；这次手写一个去掉字符串首尾空格的 Pipe。
 
@@ -646,6 +650,47 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 - `POST /api/notes`，body `{ "title": "  周报  ", "content": "  内容  " }` → 库里 / 响应里 `title` 为 `"周报"`，`content` 为 `"内容"`（无首尾空格）
 - `GET /api/notes` 的 `q`、文件上传、ticks **不要**被 TrimPipe 改掉
 - 非法 DTO 仍 400（ValidationPipe 还在）
+
+卡住再问；做完喊 review。
+
+### 练习 13 — Exception Filter（Prisma P2025）
+
+目标：学会 **`ExceptionFilter`**。位置在整条请求链的最后：Service / ORM 抛错之后，由 Filter 写成 HTTP 响应。
+
+现有 `UploadExceptionFilter` 已经是全局 `@Catch()`：上传超限 → 400，`HttpException` 原样写出，其余 → 500。这次**另写一个 Filter**，专门把 Prisma「记录不存在」变成 404，不要拆掉上传 Filter。
+
+练习 6 的 Notes GET/PATCH/DELETE 现在是先 `findUnique`，找不到再 `throw new NotFoundException`。`findUnique` **不会**抛 `P2025`；`update` / `delete` / `findUniqueOrThrow` 找不到记录才会。所以本练习要让 Notes 真正走到 Prisma 异常，再由 Filter 转 404。
+
+#### 功能需求
+
+1. **新建** Filter（建议 `apps/api/src/common/prisma-exception.filter.ts`），`implements ExceptionFilter`。
+2. 用 `@Catch(Prisma.PrismaClientKnownRequestError)`（从 `@prisma/client` 引入 `Prisma`），不要再写一个吞掉一切的 `@Catch()`，以免和上传 Filter 抢异常。
+3. `catch` 里：
+   - `exception.code === 'P2025'` → HTTP **404**，中文，例如 `记录不存在`（Filter 是全局的，不要写死「备忘录」）
+   - 其它 Prisma known error → HTTP **500**，中文（例如 `数据库操作失败`），**不要**把 Prisma 英文 / SQL 原文返回给客户端
+   - 写响应用 Fastify：`host.switchToHttp().getResponse<FastifyReply>()`，对齐现有上传 Filter
+4. **`main.ts`**：`useGlobalFilters` **同时**挂上传 Filter 和这个新 Filter。不要删 `UploadExceptionFilter`。
+5. **改** `NotesService`，让不存在的 id 触发 `P2025`，而不是先查再 `NotFoundException`：
+   - GET：`findUniqueOrThrow`（或等价）
+   - PATCH：直接 `update`，去掉事先 `findUnique`
+   - DELETE：直接 `delete`，去掉事先 `findUnique`
+   - 这三处可以不再 `import { NotFoundException }`
+6. **禁止**：改工时/配置洞察业务；拆掉上传 Filter；把 Filter 只挂在 Notes 控制器上（本练习要全局，以后别的表的 `P2025` 也能 404）；改 Prisma schema / 迁 PG。
+
+#### 提示
+
+- 全局 Filter 的注册顺序：Nest 按异常类型匹配，`PrismaClientKnownRequestError` 会进新 Filter；`HttpException`（400/401/429 和业务里仍 `throw new NotFoundException` 的地方）仍走上传 Filter。
+- 若误写成第二个 `@Catch()` 且没把 `HttpException` 原样写出，校验 400、JWT 401、配额 429 都会坏掉。
+- `P2025` 是 Prisma **ClientKnownRequestError** 的 `code` 字符串，不是 HTTP 状态码。
+
+#### 验收
+
+- 带 Token：`GET /api/notes/999999`、`PATCH /api/notes/999999`、`DELETE /api/notes/999999` → **404**，中文，不是 500
+- 非法 body 的 POST/PATCH Notes → 仍 **400**（ValidationPipe）
+- 无 Token → 仍 **401**
+- `POST /api/ticks/stream` 超额 → 仍 **429**
+- Excel 上传超限 → 仍 **400** 中文（上传 Filter 还在）
+- 存在的 id：GET/PATCH/DELETE 行为与练习 6 相同（DELETE 成功仍 204）
 
 卡住再问；做完喊 review。
 
@@ -723,11 +768,11 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 **9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18**  
 先把请求链在现有进程里看清楚，再引入 PG/Redis，最后才是队列（否则排错时分不清是 Nest 还是基础设施）。
 
-下一步：练习 12 需求已开（TrimPipe）。
+下一步：练习 13 需求已开（Prisma P2025 → 404 Filter）。
 
 ## 下一对话建议开场动作
 
-1. 用户实现练习 12，或卡住提问。  
+1. 用户实现练习 13，或卡住提问。  
 2. PG 17 已装，迁库仍待练习 14；勿提前改 schema。  
 3. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
 4. `npm run start:dev`（注意勿多开占 3000）。
