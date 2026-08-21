@@ -10,6 +10,7 @@ import { AppModule } from './app.module';
 import { ensureDataDirs, UPLOADS_DIR } from './common/paths';
 import { MAX_EXCEL_UPLOAD_BYTES } from './common/upload';
 import { UploadExceptionFilter } from './common/upload-exception.filter';
+import { PrismaExceptionFilter } from './common/prisma-exception.filter';
 
 /**
  * @fastify/* 在 nodenext 下与 Nest 的 FastifyInstance 类型偶发不兼容：
@@ -49,7 +50,7 @@ async function bootstrap() {
       transform: true,
     }),
   );
-  app.useGlobalFilters(new UploadExceptionFilter());
+  app.useGlobalFilters(new UploadExceptionFilter(), new PrismaExceptionFilter());
 
   const port = Number(process.env.PORT ?? 3000);
   await app.listen(port, '0.0.0.0');

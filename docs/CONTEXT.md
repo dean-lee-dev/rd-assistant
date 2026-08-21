@@ -315,13 +315,17 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-20 16:42 | 练习 12 二次 review：顶层 string、PATCH 已挂。P0 仍在：对象字段未判断 `typeof === 'string'`，缺 `content` 时仍会 `.trim()` 抛错。 |
 | 2026-08-20 16:44 | 练习 12 三次 review：已加 `typeof === 'string'`，Logger 已删。可标完成。P1：未用的 `Logger` import、PATCH 仍写 `TrimPipe<CreateNoteDto>`。 |
 | 2026-08-20 16:45 | 提交并 push 练习 12：`TrimPipe` 挂 Notes POST/PATCH。开练习 13 需求：Prisma `P2025` → 404 Filter。 |
+| 2026-08-21 16:56 | 练习 13 代码 review：Filter + 双全局挂载已有。P0：非 P2025 的 HTTP 状态写成了 404；Notes 仍先查再 `new PrismaClientKnownRequestError`，没有让 Prisma 自己抛。 |
+| 2026-08-21 17:01 | 练习 13 二次 review：Filter 状态码、GET `findUniqueOrThrow`、PATCH 直接 `update` 已齐。P0：DELETE 先 `delete` 成功后又 `delete` 一次，存在的 id 会变成 404。 |
+| 2026-08-21 17:04 | 练习 13 三次 review：DELETE 只调一次 `delete`。可标完成。P1：Filter 里未用的 `ctx`、`@Injectable()`。 |
+| 2026-08-21 17:06 | 提交并 push 练习 13：Prisma `P2025` Filter + Notes `findUniqueOrThrow`/`update`/`delete`。开练习 14 需求：Prisma 迁本机 PostgreSQL 17.11。 |
 
 ## NestJS 手写练习（学习轨）
 
 > 目的：在现有 `apps/api` 上亲手写代码学 Nest，不另起仓库。  
 > 约定：Agent **只先给需求**；用户自己实现；卡住再问。每次进度必须回写本文件。  
 > **熟练标准（本仓库）**：能独立加一个与现网风格一致的功能模块（Module / Controller / Service / DTO / JWT / Prisma / 合适的 HTTP 状态码）。不是要学完 Nest 全集（微服务、GraphQL、CQRS 等本项目不用）。  
-> **进度（2026-08-20）**：1–12 完成。练习 13（Exception Filter）需求已开。PG 17 已装、尚未切库。
+> **进度（2026-08-21）**：1–13 完成。练习 14（Prisma 迁 PostgreSQL）需求已开。本机 PG 17.11 已装、尚未切库。
 
 ### 练习 1 — 健康检查 ✅ 已完成
 
@@ -653,7 +657,7 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 
 卡住再问；做完喊 review。
 
-### 练习 13 — Exception Filter（Prisma P2025）
+### 练习 13 — Exception Filter（Prisma P2025） ✅ 已完成（可按 P1 小清理）
 
 目标：学会 **`ExceptionFilter`**。位置在整条请求链的最后：Service / ORM 抛错之后，由 Filter 写成 HTTP 响应。
 
@@ -691,6 +695,46 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 - `POST /api/ticks/stream` 超额 → 仍 **429**
 - Excel 上传超限 → 仍 **400** 中文（上传 Filter 还在）
 - 存在的 id：GET/PATCH/DELETE 行为与练习 6 相同（DELETE 成功仍 204）
+
+卡住再问；做完喊 review。
+
+### 练习 14 — Prisma 迁 PostgreSQL（本机 17.11）
+
+目标：把 datasource 从 SQLite 换成 **PostgreSQL**。用已经装好的本机 **17.11**（`D:\software\PostgreSQL\17`，`bin\psql.exe`）。**不迁** `apps/data/assistant.prisma.sqlite` 里的旧业务数据，空库 + 现有 seed 即可（admin / 默认 AI 配置）。
+
+练习 **15** 才把 postgres 加进 `docker-compose.yml`。本次先让 **`npm run start:dev` 连本机 PG**。
+
+#### 功能需求
+
+1. **本机空库**：用 `psql` 建一个空数据库（建议名 `assistant`）。账号/密码放本机 `apps/api/.env`，**不要提交**。
+2. **`schema.prisma`**：`datasource.provider` 改为 `postgresql`。模型字段尽量不动（现有 `Json` 在 PG 上会变成 jsonb，这是期望行为）。
+3. **Migration 新基线**：旧目录是 SQLite 的 SQL，**不能** `migrate deploy` 到 PG。处理方式任选其一，结果必须是：
+   - `prisma/migrations/` 里是 **PostgreSQL** 基线（`migration_lock.toml` 的 provider 为 `postgresql`）
+   - 对本机空库执行 `npm run db:migrate:dev`（或 `migrate deploy`）能建好表
+   - 不要把 SQLite 文件内容导入 PG
+4. **`DATABASE_URL`**：
+   - 形如 `postgresql://USER:PASSWORD@localhost:5432/assistant`（密码若有特殊字符要 URL 编码）
+   - 更新根目录 `.env.example` 为 postgres 示例（占位符，不要写真实密码）
+   - 改 `ensureDatabaseUrl()`：**不要再默认拼 `file:...sqlite`**。未配置 `DATABASE_URL` 时应明确失败（开发/生产都不要静默退回 SQLite）
+   - `DATA_DIR` / `UPLOADS_DIR` 仍用于上传文件，只是不再承载数据库文件
+5. **Dockerfile 构建占位 URL**：`prisma generate` 不连真实库，但 provider 已是 postgresql 后，构建阶段 `ENV DATABASE_URL=file:...` 会不合法。改成占位 `postgresql://...` 即可。**运行阶段 CMD、compose 加 postgres 服务留给练习 15**（本练习不要用 `docker compose up` 验收）。
+6. **文档**：同步 `docs/CONTEXT.md`「已确认决策」第 9 条，以及 `docs/10001/技术方案.md` 的 DB 选型与 `updatedAt`。写明：默认库是本机/部署 PostgreSQL；旧 SQLite 仅备份，不迁数据。
+7. **禁止**：把旧 SQLite 业务数据 migrate 进 PG；加 Redis / 队列；改工时/配置洞察业务逻辑；把 postgres 服务写进 compose（那是 15）；提交 `.env` 或真实密码。
+
+#### 提示
+
+- Prisma 换 provider 后，旧 `migrations/*.sql` 是 SQLite 方言。常见做法：归档或删除旧 migration，再 `prisma migrate dev --name init_pg` 生成新基线。
+- 启动仍会跑现有 `SeedService`：空库会写入 admin。登录账号与现在相同（开发兜底 `admin` / `admin123`）。
+- Notes 的 `contains` 在 PG 上默认大小写敏感（SQLite 往往不敏感）。本练习验收不要求改成不敏感。
+- 只开一个 `start:dev`（端口 3000）。
+
+#### 验收
+
+- `apps/api/.env` 指向本机 PG；`npm run start:dev` 能起来
+- `GET /api/health` 200；能登录；`GET /api/notes`（带 Token）可用
+- 不存在的备忘录 id 仍 404（练习 13 Filter 仍在）
+- 仓库里 **没有** 真实密码；`.env.example` 是 postgres 占位
+- 旧文件 `apps/data/assistant.prisma.sqlite` 可以留着当备份，但进程不再读它
 
 卡住再问；做完喊 review。
 
@@ -768,11 +812,11 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 **9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18**  
 先把请求链在现有进程里看清楚，再引入 PG/Redis，最后才是队列（否则排错时分不清是 Nest 还是基础设施）。
 
-下一步：练习 13 需求已开（Prisma P2025 → 404 Filter）。
+下一步：练习 14 需求已开（Prisma 迁本机 PostgreSQL 17.11）。
 
 ## 下一对话建议开场动作
 
-1. 用户实现练习 13，或卡住提问。  
-2. PG 17 已装，迁库仍待练习 14；勿提前改 schema。  
+1. 用户实现练习 14，或卡住提问。  
+2. 练习 14 用本机 PG，勿提前改 compose 加 postgres（那是 15）。  
 3. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
 4. `npm run start:dev`（注意勿多开占 3000）。

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { Note, Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateNoteDto, UpdateNoteDto } from './dto/create-note.dto';
@@ -52,12 +52,9 @@ export class NotesService {
   }
 
   async getNoteById(id: number): Promise<Note> {
-    const note = await this.prisma.note.findUnique({
+    const note = await this.prisma.note.findUniqueOrThrow({
       where: { id },
     });
-    if ( !note ) {
-      throw new NotFoundException('备忘录不存在');
-    }
     return note
   }
 
@@ -69,12 +66,6 @@ export class NotesService {
     if ( dto.content !== undefined ) {
       data.content = dto.content ?? undefined;
     }
-    const note = await this.prisma.note.findUnique({
-      where: { id },
-    });
-    if ( !note ) {
-      throw new NotFoundException('备忘录不存在');
-    }
     return this.prisma.note.update({
       where: { id },
       data
@@ -83,12 +74,6 @@ export class NotesService {
 
 
   async deleteNoteById(id: number): Promise<Note> {
-    const note = await this.prisma.note.findUnique({
-      where: { id },
-    });
-    if ( !note ) {
-      throw new NotFoundException('备忘录不存在');
-    }
     return this.prisma.note.delete({
       where: { id },
     });
