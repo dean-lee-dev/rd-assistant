@@ -9,7 +9,7 @@ WORKDIR /build
 COPY apps/api/package.json apps/api/package-lock.json ./
 COPY apps/api/prisma ./prisma
 # DATABASE_URL 仅供 prisma generate；真实路径由运行时 DATA_DIR 拼出
-ENV DATABASE_URL="file:./placeholder.sqlite"
+ENV DATABASE_URL="postgresql://user:password@localhost:5432/assistant"
 RUN npm ci
 COPY apps/api/tsconfig.json apps/api/tsconfig.build.json apps/api/nest-cli.json ./
 COPY apps/api/src ./src

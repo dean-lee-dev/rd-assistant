@@ -3,15 +3,16 @@
 本地个人工具：工时周报生成、系统参数配置可视化、AI 配置。
 
 - 前端：Angular 19.2 + ng-zorro（`apps/web`）
-- 后端：NestJS + **Fastify** + **Prisma**（SQLite 文件，`apps/api`）
+- 后端：NestJS + **Fastify** + **Prisma**（PostgreSQL，`apps/api`）
 - 文档：[docs/CONTEXT.md](docs/CONTEXT.md) · [docs/10001/技术方案.md](docs/10001/技术方案.md) · [docs/10001/系统消化文档.md](docs/10001/系统消化文档.md)
 
 ## 环境
 
 - Node.js 20+
+- 本机 PostgreSQL 17（已装路径示例 `D:\software\PostgreSQL\17`）
 - Windows / macOS / Linux 均可
 
-> 数据库为 Prisma 管理的 SQLite 文件（非 sql.js）。日后上云多实例再切 PostgreSQL；本机若装 PG，偏好目录 `D:\software\pg`。
+> 数据库为 Prisma 管理的 **PostgreSQL**。`apps/api/.env` 设置 `DATABASE_URL`（见根目录 `.env.example`）。旧 SQLite 文件若仍在 `apps/data/` 仅作备份，进程不读。Docker Compose 加 postgres 推迟到上云。
 
 ## 安装
 
@@ -24,7 +25,7 @@ cd ../web
 npm install
 ```
 
-本地 API 默认 `DATABASE_URL=file:../../data/assistant.prisma.sqlite`（见 `apps/api/.env` / 根目录 `.env.example`）。
+本地 API 需要 `DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/assistant`（见 `apps/api/.env` / 根目录 `.env.example`）。未配置则启动失败。首次空库会 seed admin。
 
 ## 启动
 
@@ -64,20 +65,20 @@ npm start
 
 ## 数据目录
 
-运行数据默认落在 **`apps/data/`**（`common/paths.ts` 从 `apps/api/{src|dist}/common` 上溯三级得到 `<repo>/apps`），不是仓库根的 `data/`：
+运行文件默认落在 **`apps/data/`**（`common/paths.ts` 从 `apps/api/{src|dist}/common` 上溯三级得到 `<repo>/apps`），不是仓库根的 `data/`：
 
 ```text
 apps/data/
-  assistant.prisma.sqlite   # Prisma SQLite（自动生成）
-  assistant.sqljs.bak       # 旧 sql.js 库备份（若曾迁移）
   uploads/                  # Excel 提取的图片等
+  assistant.prisma.sqlite   # 旧库备份（若仍在；进程不读）
+  assistant.sqljs.bak       # 更早的 sql.js 备份（若曾迁移）
 data/
   sample-worktime.xlsx      # 仅样例，非运行数据
 ```
 
-可用 `DATA_DIR` 显式指定（容器部署即用此方式挂载持久卷）。上述文件默认 gitignore，勿提交真实 API Key。
+可用 `DATA_DIR` 显式指定上传目录（容器部署即用此方式挂载持久卷）。上述文件默认 gitignore，勿提交真实 API Key。
 
-> 从 TypeORM/sql.js 迁到 Prisma 时**不自动迁移业务数据**；启动后仅 seed（admin + 默认 AI 配置），需重新导 Excel / 配 AI Key。
+> 从 SQLite 迁到 PostgreSQL 时**不自动迁移业务数据**；空库启动后仅 seed（admin + 默认 AI 配置），需重新导 Excel / 配 AI Key。
 
 ## 部署（单台云主机 + Docker Compose + nginx）
 
@@ -101,13 +102,13 @@ docker compose up -d --build
 
 `JWT_SECRET` / `ADMIN_PASS` 在 `NODE_ENV=production` 下缺失会**直接启动失败**，这是刻意设计，避免静默退回开发兜底密钥。
 
-容器启动前会执行 `prisma migrate deploy`；SQLite 文件落在 `DATA_DIR` 卷（`assistant.prisma.sqlite`）。
+容器启动前会执行 `prisma migrate deploy`。当前 Dockerfile 运行阶段仍拼 sqlite（练习 15 / 上云时再改成 postgres）。本地开发请用本机 PostgreSQL，不要依赖 compose。
 
 ### 部署注意事项
 
-- **建议单实例。** Prisma SQLite 对并发写仍偏单机友好；多实例请等迁 PostgreSQL。不要加 `replicas`；导入或长时间 AI 进行中尽量避免硬重启。
+- **本地已是 PostgreSQL。** 现有 compose 尚未包含 postgres 服务，上云前不要加 `replicas`。
 - **Basic Auth 必须配合 HTTPS**：凭证只是 base64 编码。它同时保护了 `/uploads`（浏览器对 `<img>` 会自动附带同源 Basic 凭证），因此内部系统截图不会对公网裸奔。
-- **持久卷务必挂到 `DATA_DIR`（容器内 `/app/data`）**。若照旧文档挂仓库根的 `data/`，数据会留在容器可写层，`docker compose down` 即丢且全程不报错。
+- **持久卷务必挂到 `DATA_DIR`（容器内 `/app/data`）** 以保存上传文件。若照旧文档挂仓库根的 `data/`，文件会留在容器可写层，`docker compose down` 即丢且全程不报错。
 - nginx 已配 `proxy_buffering off` 与 `proxy_read_timeout 600s`，缺任一项都会让 SSE 流式输出表现为「卡很久后一次性全部出现」或长分析被掐断。
 - 上传限制 50MB（`MAX_EXCEL_UPLOAD_BYTES` 与 nginx `client_max_body_size` 需保持一致），仅接受 `.xlsx`。
 - 数据库含**明文 API Key**，备份包属敏感物，勿放公开可读的对象存储。

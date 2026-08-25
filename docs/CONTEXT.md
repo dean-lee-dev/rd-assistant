@@ -15,7 +15,7 @@
 
 ## 一句话目标
 
-本地可运行的个人研发效能 Web：登录后，(1) 工时 Excel → AI 周报；(2) 配置洞察（参数 Excel → 可检索可视化表 + AI 分析/对话）；(3) AI/系统配置。Angular 19.2 + ng-zorro + NestJS Fastify + Prisma SQLite。
+本地可运行的个人研发效能 Web：登录后，(1) 工时 Excel → AI 周报；(2) 配置洞察（参数 Excel → 可检索可视化表 + AI 分析/对话）；(3) AI/系统配置。Angular 19.2 + ng-zorro + NestJS Fastify + Prisma PostgreSQL。
 
 ## 已确认决策（勿再追问除非用户改口）
 
@@ -27,15 +27,16 @@
 6. 周报可编辑；复制富文本 + Markdown；AI 字段失败则空。
 7. 配置洞察（原系统参数）：物理行、空/重复 key、Excel 行号、全量覆盖、提图；AI 支持全量/多选整行分析 + 右侧对话；分析与对话均为 Markdown 预览 + SSE 流式。
 8. AI：DeepSeek 兼容协议，Key 存服务端；chat/completions 支持 stream。
-9. DB：**Prisma + SQLite 文件** `apps/data/assistant.prisma.sqlite`（已弃用 sql.js/TypeORM；旧库备份为 `assistant.sqljs.bak`，**不自动迁业务数据**，启动仅 seed）。
+9. DB：**Prisma + PostgreSQL**（本机 17.11，`DATABASE_URL`）。旧 SQLite `apps/data/assistant.prisma.sqlite` 仅备份，**不迁业务数据**；空库靠 seed（admin + 默认 AI 配置）。缺 `DATABASE_URL` 启动失败，不再拼 sqlite 文件。
 10. 文件本地存储。
 11. 工时 ai小助手对话：Markdown 渲染 + SSE 流式。
 12. **（2026-07-29）部署形态：单台云主机 + Docker Compose + nginx 反代，前端静态文件同源托管。**
-13. **（2026-08-07）DB 演进：当前 Prisma SQLite；上云后再切 PostgreSQL。HTTP 层为 Nest Fastify。**  
-    **（2026-08-19）本机已装 PostgreSQL 17.11**，目录 `D:\software\PostgreSQL\17`（`bin\psql.exe`）。迁库仍走练习 14–15，**尚未改 schema / 不迁旧 SQLite 业务数据**。
+13. **（2026-08-07）DB 演进：HTTP 层为 Nest Fastify。**  
+    **（2026-08-19）本机已装 PostgreSQL 17.11**，目录 `D:\software\PostgreSQL\17`（`bin\psql.exe`）。  
+    **（2026-08-25）本地开发切本机 PG（练习 14），不迁旧 SQLite 业务数据。Docker 日常不用；练习 15（compose 加 postgres / 改启动 CMD）推迟到上云时再做。** 现有 Dockerfile ×2 与 compose（api+web+nginx）保留，不要删。
 14. **（2026-07-29）上线原则：只做「影响上线部署」的改动，且所有改动必须兼容本地运行（默认值保持现状，靠环境变量/`isDevMode()` 区分）。**
 
-> ⚠️ **运维建议（Prisma SQLite 期间）**：仍建议单实例（并发写友好度有限）。compose 勿加 `replicas`；多实例等迁 PG。
+> ⚠️ **运维建议**：本地已是本机 PostgreSQL。现有 compose 尚未加 postgres 服务（练习 15 / 上云）；上云前勿加 `replicas`。
 
 ## 当前状态
 
@@ -43,7 +44,7 @@
 |------|------|
 | 需求澄清 | 已完成 |
 | 技术方案 | 已完成 |
-| 代码实现 | **MVP 已落地**；2026-07-29 上云改造；**2026-08-07 底层迁 Prisma SQLite + Nest Fastify** |
+| 代码实现 | **MVP 已落地**；2026-07-29 上云改造；2026-08-07 Prisma + Fastify；**2026-08-25 本地切 PostgreSQL 17.11** |
 | 部署就绪 | 产物齐备（Dockerfile×2 / compose / nginx.conf）；待服务器侧配证书与 `.htpasswd` |
 | 默认管理员 | `admin` / `admin123`（见 README） |
 | 联调 | 登录、工时导入、规则周报生成已用样例验证；AI 需自行配置 Key |
@@ -53,7 +54,7 @@
 ```text
 apps/web/          Angular 19.2 + ng-zorro
 apps/api/          NestJS Fastify + Prisma
-apps/data/         ★ 真实运行数据：assistant.prisma.sqlite + uploads/
+apps/data/         ★ 运行文件：uploads/（旧 sqlite 若在仅备份，进程不读）
 data/              仅 sample-worktime.xlsx + .gitkeep（非运行数据）
 docs/10001/技术方案.md
 docs/10001/系统消化文档.md
@@ -61,7 +62,7 @@ docs/CONTEXT.md
 README.md
 ```
 
-> ⚠️ **数据目录易错点**：`common/paths.ts` 的 `ROOT_DIR = join(__dirname,'..','..','..')` 从 `apps/api/src/common` 上溯三级实际落在 `<repo>/apps`，故运行数据在 **`apps/data/`**，不是根目录 `data/`。DB 文件现为 `assistant.prisma.sqlite`；`DATABASE_URL` 未设时由 `ensureDatabaseUrl()` 按 `DATA_DIR` 拼出。配置持久卷时若挂错目录，数据留在容器可写层，`docker compose down` 即丢且全程不报错。
+> ⚠️ **数据目录易错点**：`common/paths.ts` 的 `ROOT_DIR` 上溯三级落在 `<repo>/apps`，故上传文件在 **`apps/data/uploads/`**，不是仓库根 `data/`。数据库走 `DATABASE_URL` 连本机 PostgreSQL，不再读 sqlite。配置持久卷时若挂错目录，上传文件会留在容器可写层，`docker compose down` 即丢且全程不报错。
 
 ## 菜单与路由
 
@@ -113,7 +114,7 @@ README.md
 
 ### 明确推迟
 
-Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI 限流、AI HTML 消毒、周报对话 `taskName` bug、导入图片目录清理。
+练习 15（compose 加 postgres，上云时再做）、`/uploads` 签名 URL（Basic Auth 暂兜）、AI 限流、AI HTML 消毒、周报对话 `taskName` bug、导入图片目录清理。
 
 > ⚠️ 推迟项中 **「分析行数上限」有自伤风险**：Basic Auth 挡不住自己手滑点全量分析，单次即数万 token。
 
@@ -319,13 +320,18 @@ Prisma SQLite → PostgreSQL、`/uploads` 签名 URL（Basic Auth 暂兜）、AI
 | 2026-08-21 17:01 | 练习 13 二次 review：Filter 状态码、GET `findUniqueOrThrow`、PATCH 直接 `update` 已齐。P0：DELETE 先 `delete` 成功后又 `delete` 一次，存在的 id 会变成 404。 |
 | 2026-08-21 17:04 | 练习 13 三次 review：DELETE 只调一次 `delete`。可标完成。P1：Filter 里未用的 `ctx`、`@Injectable()`。 |
 | 2026-08-21 17:06 | 提交并 push 练习 13：Prisma `P2025` Filter + Notes `findUniqueOrThrow`/`update`/`delete`。开练习 14 需求：Prisma 迁本机 PostgreSQL 17.11。 |
+| 2026-08-25 13:58 | 用户确认：本地不用 Docker，等上云再用。练习 15 推迟到上云；14 仍用本机 PG 17.11 + `start:dev`。现有 Dockerfile/compose 保留不删。 |
+| 2026-08-25 14:13 | 练习 14 代码 review：schema + 新 PG migration 基线已有，旧 SQLite migration 已删。P0：Dockerfile 写入了真实数据库密码；`ensureDatabaseUrl` 仍默认拼 sqlite；`.env.example` / 技术方案 / CONTEXT 决策 9 未改成 PG。 |
+| 2026-08-25 14:21 | 练习 14 二次 review：Dockerfile 已改占位 URL。P0：`ensureDatabaseUrl` 缺省时空函数、没有 throw；`.env.example` / 技术方案 / CONTEXT 决策 9 仍是 SQLite。 |
+| 2026-08-25 14:23 | 练习 14 三次 review：缺 `DATABASE_URL` 已 throw。文档由 Agent 同步为 PG。可标完成。P1：`paths.ts` 仍留 sqlite 注释/`DB_FILE`，throw 文案为英文。 |
+| 2026-08-25 14:27 | 提交练习 14：Prisma 迁本机 PostgreSQL 17.11；旧 SQLite migration 删除；缺 `DATABASE_URL` 启动失败。未 push。 |
 
 ## NestJS 手写练习（学习轨）
 
 > 目的：在现有 `apps/api` 上亲手写代码学 Nest，不另起仓库。  
 > 约定：Agent **只先给需求**；用户自己实现；卡住再问。每次进度必须回写本文件。  
 > **熟练标准（本仓库）**：能独立加一个与现网风格一致的功能模块（Module / Controller / Service / DTO / JWT / Prisma / 合适的 HTTP 状态码）。不是要学完 Nest 全集（微服务、GraphQL、CQRS 等本项目不用）。  
-> **进度（2026-08-21）**：1–13 完成。练习 14（Prisma 迁 PostgreSQL）需求已开。本机 PG 17.11 已装、尚未切库。
+> **进度（2026-08-25）**：1–14 完成。练习 15（Docker/compose 加 postgres）**推迟到上云**。下一步练习 16（Redis）。
 
 ### 练习 1 — 健康检查 ✅ 已完成
 
@@ -698,11 +704,11 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 
 卡住再问；做完喊 review。
 
-### 练习 14 — Prisma 迁 PostgreSQL（本机 17.11）
+### 练习 14 — Prisma 迁 PostgreSQL（本机 17.11） ✅ 已完成（可按 P1 小清理）
 
 目标：把 datasource 从 SQLite 换成 **PostgreSQL**。用已经装好的本机 **17.11**（`D:\software\PostgreSQL\17`，`bin\psql.exe`）。**不迁** `apps/data/assistant.prisma.sqlite` 里的旧业务数据，空库 + 现有 seed 即可（admin / 默认 AI 配置）。
 
-练习 **15** 才把 postgres 加进 `docker-compose.yml`。本次先让 **`npm run start:dev` 连本机 PG**。
+练习 **15**（compose 加 postgres）已推迟到上云。本次只让 **`npm run start:dev` 连本机 PG**，不要起 Docker。
 
 #### 功能需求
 
@@ -717,7 +723,7 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
    - 更新根目录 `.env.example` 为 postgres 示例（占位符，不要写真实密码）
    - 改 `ensureDatabaseUrl()`：**不要再默认拼 `file:...sqlite`**。未配置 `DATABASE_URL` 时应明确失败（开发/生产都不要静默退回 SQLite）
    - `DATA_DIR` / `UPLOADS_DIR` 仍用于上传文件，只是不再承载数据库文件
-5. **Dockerfile 构建占位 URL**：`prisma generate` 不连真实库，但 provider 已是 postgresql 后，构建阶段 `ENV DATABASE_URL=file:...` 会不合法。改成占位 `postgresql://...` 即可。**运行阶段 CMD、compose 加 postgres 服务留给练习 15**（本练习不要用 `docker compose up` 验收）。
+5. **Dockerfile 构建占位 URL**（为以后上云，本地不必 `docker build`）：`prisma generate` 不连真实库，但 provider 改成 postgresql 后，构建阶段 `ENV DATABASE_URL=file:...` 会不合法。改成占位 `postgresql://...` 即可。**运行阶段 CMD、compose 加 postgres 留给练习 15 / 上云**，本次不要用 `docker compose up` 验收。
 6. **文档**：同步 `docs/CONTEXT.md`「已确认决策」第 9 条，以及 `docs/10001/技术方案.md` 的 DB 选型与 `updatedAt`。写明：默认库是本机/部署 PostgreSQL；旧 SQLite 仅备份，不迁数据。
 7. **禁止**：把旧 SQLite 业务数据 migrate 进 PG；加 Redis / 队列；改工时/配置洞察业务逻辑；把 postgres 服务写进 compose（那是 15）；提交 `.env` 或真实密码。
 
@@ -784,10 +790,10 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 
 | 练习 | 练什么 | 落在产品上 |
 |------|--------|------------|
-| **14** | Prisma datasource PG；新 migration 基线 | `DATABASE_URL`；本地 compose `postgres` 或 `D:\software\pg` |
-| **15** | Docker | compose：`postgres` + 现有 `api`/`web`；api 等 PG healthy 再启动 |
+| **14** | Prisma datasource PG；新 migration 基线 | `DATABASE_URL` 连本机 `D:\software\PostgreSQL\17` |
+| **15** | Docker（**推迟上云**） | compose 加 `postgres`；api 等 PG healthy；改 Dockerfile CMD，不再拼 sqlite |
 
-验收：`docker compose up` 能登录；SQLite 文件不再作为生产路径（本地无 compose 时可用 env 切回 SQLite **仅若你仍要双引擎，否则 B 之后只保留 PG**）。
+验收（14）：`start:dev` 能登录；进程不再读 SQLite。验收（15，上云时）：`docker compose up` 能登录。
 
 ### 阶段 C — Redis + Queue（AI 任务中心）
 
@@ -809,14 +815,14 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 
 ### 建议顺序
 
-**9 → 10 → 11 → 12 → 13 → 14 → 15 → 16 → 17 → 18**  
-先把请求链在现有进程里看清楚，再引入 PG/Redis，最后才是队列（否则排错时分不清是 Nest 还是基础设施）。
+**9 → … → 13 → 14 →（15 推迟上云）→ 16 → 17 → 18**  
+本地先把 PG 跑通，再引入 Redis/队列；compose 加 postgres 等上云再做。
 
-下一步：练习 14 需求已开（Prisma 迁本机 PostgreSQL 17.11）。
+下一步：练习 14 已完成。用户说继续后再开练习 16（Redis）。练习 15 推迟到上云。
 
 ## 下一对话建议开场动作
 
-1. 用户实现练习 14，或卡住提问。  
-2. 练习 14 用本机 PG，勿提前改 compose 加 postgres（那是 15）。  
-3. 上云剩余：证书 / htpasswd / 服务器 `.env`。  
+1. 用户可提交练习 14，或说继续开练习 16。  
+2. 本地不用 Docker；练习 15 推迟到上云。  
+3. 上云剩余：证书 / htpasswd / 服务器 `.env`、compose 加 postgres。  
 4. `npm run start:dev`（注意勿多开占 3000）。

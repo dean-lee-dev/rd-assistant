@@ -45,12 +45,7 @@ export const DB_FILE = join(DATA_DIR, 'assistant.prisma.sqlite');
  */
 export function ensureDatabaseUrl(): void {
   if (!process.env.DATABASE_URL) {
-    // Prisma file URL：正斜杠；Windows 绝对路径需 file:///C:/...
-    const normalized = DB_FILE.replace(/\\/g, '/');
-    const url = normalized.startsWith('/')
-      ? `file:${normalized}`
-      : `file:///${normalized}`;
-    process.env.DATABASE_URL = url;
+    throw new Error('DATABASE_URL未配置');
   }
 }
 
