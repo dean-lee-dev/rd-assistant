@@ -11,6 +11,8 @@ import { NotesModule } from './notes/notes.module';
 import { FilesModule } from './files/files.module';
 import { TicksModule } from './ticks/ticks.module';
 import { RequestIdMiddleware } from './common/request-id.middleware';
+import { RedisModule } from './redis/redis.module';
+
 ensureDataDirs();
 
 @Module({
@@ -25,6 +27,7 @@ ensureDataDirs();
     NotesModule,
     FilesModule,
     TicksModule,
+    RedisModule,
   ],
 })
 export class AppModule implements NestModule {

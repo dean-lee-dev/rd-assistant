@@ -1,32 +1,31 @@
-import { CanActivate, ExecutionContext, HttpException, HttpStatus, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
-import { Observable } from "rxjs";
-
+import { CanActivate, ExecutionContext, HttpException, HttpStatus, Inject, Injectable, UnauthorizedException } from "@nestjs/common";
+import Redis from "ioredis";
 
 @Injectable()
 export class AiQuotaGuard implements CanActivate {
 
-    private tickMap = new Map<number, number>();
+    constructor(@Inject('REDIS_CLIENT') private readonly redisClient: Redis) {}
 
-    canActivate(context: ExecutionContext): boolean | Promise<boolean> | Observable<boolean> {
+    async canActivate(context: ExecutionContext): Promise<boolean> {
         
         const user = context.switchToHttp().getRequest().user;
         if ( !user ) {
             throw new UnauthorizedException();
         }
         const userId = user.userId;
-        const tick = this.tickMap.get(userId);
-        if (tick) {
-            if ( tick >= 3 ) {
-                throw new HttpException(
-                    "AI 调用次数已达上限",
-                    HttpStatus.TOO_MANY_REQUESTS
-                );
-            }
-            this.tickMap.set(userId, tick + 1);
-        } else {
-            this.tickMap.set(userId, 1);
+
+        const tick = await this.getTick(userId);
+        if ( tick > 3 ) {
+            throw new HttpException(
+                "AI 调用次数已达上限",
+                HttpStatus.TOO_MANY_REQUESTS
+            );
         }
-        Logger.log(user);
         return true;
+    }
+
+    private async getTick(userId: number): Promise<number> {
+        const key = `ai-quota:${userId}`;
+        return await this.redisClient.incr(key);
     }
 }

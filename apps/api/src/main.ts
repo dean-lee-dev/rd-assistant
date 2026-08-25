@@ -53,6 +53,8 @@ async function bootstrap() {
   app.useGlobalFilters(new UploadExceptionFilter(), new PrismaExceptionFilter());
 
   const port = Number(process.env.PORT ?? 3000);
+
+  app.enableShutdownHooks();
   await app.listen(port, '0.0.0.0');
 }
 bootstrap();

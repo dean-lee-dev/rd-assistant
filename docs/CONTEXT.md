@@ -325,13 +325,19 @@ README.md
 | 2026-08-25 14:21 | 练习 14 二次 review：Dockerfile 已改占位 URL。P0：`ensureDatabaseUrl` 缺省时空函数、没有 throw；`.env.example` / 技术方案 / CONTEXT 决策 9 仍是 SQLite。 |
 | 2026-08-25 14:23 | 练习 14 三次 review：缺 `DATABASE_URL` 已 throw。文档由 Agent 同步为 PG。可标完成。P1：`paths.ts` 仍留 sqlite 注释/`DB_FILE`，throw 文案为英文。 |
 | 2026-08-25 14:27 | 提交练习 14：Prisma 迁本机 PostgreSQL 17.11；旧 SQLite migration 删除；缺 `DATABASE_URL` 启动失败。未 push。 |
+| 2026-08-25 14:28 | 已 push 练习 14（`efe0a3e`）。开练习 16 需求：`AiQuotaGuard` 计数从内存 Map 迁到本机 Redis。练习 15 仍推迟上云。 |
+| 2026-08-25 17:30 | 练习 16 答疑：Nest 连 Redis 本练习只装 `ioredis`（自带类型）；不要 `@nestjs/throttler` / BullMQ。 |
+| 2026-08-25 18:20 | 练习 16 代码 review：ioredis + 全局 RedisModule + Guard 已走 Redis `INCR`。P0：Redis 连不上时 INCR 抛错会 500，不是启动失败或 503。P1：未使用的 `tickMap`、多余 SETNX。 |
+| 2026-08-25 18:28 | 练习 16 二次 review：启动 `PING` 失败会 throw。可标完成。P1：多余 `setnx`、`Logger.log(user)`、`if (tick)` 恒真。 |
+| 2026-08-25 18:29 | 练习 16 三次 review：`setnx` / `Logger.log` / 恒真 if 已删。可标完成。P1：Guard 里未用的 `Logger`、`Observable` import。 |
+| 2026-08-25 18:31 | 提交并 push 练习 16：Redis `INCR` 配额 + 启动 PING。开练习 17 需求：BullMQ 入队生成周报 + 本机独立 worker（不上 compose）。 |
 
 ## NestJS 手写练习（学习轨）
 
 > 目的：在现有 `apps/api` 上亲手写代码学 Nest，不另起仓库。  
 > 约定：Agent **只先给需求**；用户自己实现；卡住再问。每次进度必须回写本文件。  
 > **熟练标准（本仓库）**：能独立加一个与现网风格一致的功能模块（Module / Controller / Service / DTO / JWT / Prisma / 合适的 HTTP 状态码）。不是要学完 Nest 全集（微服务、GraphQL、CQRS 等本项目不用）。  
-> **进度（2026-08-25）**：1–14 完成。练习 15（Docker/compose 加 postgres）**推迟到上云**。下一步练习 16（Redis）。
+> **进度（2026-08-25）**：1–16 完成。练习 17（BullMQ + 本机 Worker）需求已开。练习 15（Docker）推迟到上云。
 
 ### 练习 1 — 健康检查 ✅ 已完成
 
@@ -744,6 +750,93 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 
 卡住再问；做完喊 review。
 
+### 练习 16 — Redis（配额计数） ✅ 已完成（可按 P1 小清理）
+
+目标：把练习 11 的 **内存 `Map`** 换成 **Redis**。接口行为不变：仍只拦 `POST /api/ticks/stream`，每个 `userId` 成功 3 次，第 4 次 **429**。重启 api **不应**清零（这就是和 Map 的差别）。
+
+和 PostgreSQL 一样：用**本机 Redis**，不要 Docker / 不要改 compose（练习 15、17 的容器化仍推迟）。
+
+#### 功能需求
+
+1. **本机 Redis**：装并跑起来（Windows 可用 Memurai、WSL `redis-server`，或你已有的 Redis）。默认无密码即可。`redis-cli PING` → `PONG`。
+2. **连接**：
+   - `apps/api/.env` 增加 `REDIS_URL`（**不要提交** `.env`）
+   - `.env.example` 写占位：`redis://127.0.0.1:6379`
+   - 缺省可以默认连 `127.0.0.1:6379`，但连不上要**明确失败**（启动时报错，或配额接口 503 中文），**不要**静默退回内存 Map
+3. **Nest 接入**：新建 Redis Module/Service（建议 `apps/api/src/redis/`），用 `ioredis`（或等价客户端）。`AppModule` 引入；进程退出时断开连接。不要 `@nestjs/throttler`。
+4. **改 `AiQuotaGuard`**：
+   - 删掉实例上的 `Map`
+   - 按 `userId` 计数；建议 key：`ai-quota:{userId}`
+   - 用 Redis **`INCR`**（原子），不要先 GET 再 SET（有竞态）
+   - `INCR` 后若计数 **> 3** → `HttpException` / 429，中文「AI 调用次数已达上限」
+   - 前 3 次仍放行；无 `user` 仍 401
+   - `canActivate` 会变成 **async**（要等 Redis）
+   - 仍只挂在 `POST /api/ticks/stream`，JWT 在前
+5. **禁止**：改工时/配置洞察的 AI 接口；加 BullMQ / Worker（那是 17）；compose 加 redis 服务；把配额做成全局 `APP_GUARD`；提交 Redis 密码。
+
+#### 提示
+
+- 验收「重启不掉计数」：打满 3 次 → 重启 `start:dev` → 第 4 次仍 429。想重新测 3 次，用 `redis-cli DEL ai-quota:1`（admin 的 userId 一般是 1）。
+- Redis 没开时不要表现为「配额失效、无限调用」。
+- 本练习不要 TTL；过期策略以后再说。
+
+#### 验收
+
+- 无 Token → 401
+- 带 Token：前 3 次 `POST /api/ticks/stream` SSE 成功；第 4 次 429
+- 重启 api 后再打仍 429（除非你手动 DEL 了 key）
+- `GET /api/health`、`GET /api/notes` 无配额
+- 仓库无真实密钥；`.env.example` 有 `REDIS_URL` 占位
+
+卡住再问；做完喊 review。
+
+### 练习 17 — Queue + Worker（周报入队）
+
+目标：学会 **队列 + 独立 worker 进程**。HTTP 立刻返回任务 id，真正调 AI、写 PG 的活在另一个进程做。
+
+本机 Redis 已经有了（练习 16）。**不要 Docker / 不要改 compose**。再开一个终端跑 worker，和 `start:dev` 并列。
+
+现有 `POST /api/worktime/generate-report` **保留**（同步、方便对照）。这次新加 jobs 接口，worker 内部复用 `WorktimeService.generateReport`，不要复制一份生成逻辑。
+
+#### 功能需求
+
+1. **依赖**：`bullmq`（可用 `@nestjs/bullmq`，也可以自己 `new Queue` / `new Worker`）。共用现有 `REDIS_URL`。
+2. **API 进程只入队、不跑 Worker**（不要把 Worker 注册进 `main.ts` 用的 `AppModule`，否则两个进程会抢着消费，也看不出分离）。
+3. **新接口**（均 JWT）：
+   - `POST /api/jobs/weekly-report`  
+     - Body DTO：`importId` 可选（`@IsOptional` + `@IsInt`），语义与现有 generate-report 相同  
+     - 挂 `AiQuotaGuard`（和 ticks 共用 `ai-quota:{userId}`）  
+     - **立刻**返回 `{ jobId, status: "queued" }`，不要等 AI  
+   - `GET /api/jobs/:id`  
+     - 返回 `{ jobId, status }`，`status` 为 `queued | active | completed | failed`（BullMQ 的 `waiting` 请映射成 `queued`）  
+     - `completed` 时带上 `reportId`（worker 里 `generateReport` 的返回值 id）  
+     - `failed` 时带中文/可读 `error`，不要把堆栈甩给客户端  
+     - 找不到任务 → **404**
+4. **Worker 进程**：
+   - 新入口，例如 `apps/api/src/worker.ts`  
+   - `package.json` 增加 `start:worker`（watch 亦可）  
+   - 消费队列，调用现有 `generateReport(importId)`，结果写入 PG（就是现在那条 `weekly_reports`）  
+   - 没有工时导入时，现有 service 会 `NotFoundException`——让任务 **failed**，不要把整个 worker 打挂
+5. **禁止**：改 Angular；删掉或改行为 `POST /api/worktime/generate-report`；改配置洞察 AI；compose 加 redis/worker；把 Worker 和 HTTP 绑死在同一个 `start:dev` 里。
+
+#### 提示
+
+- 验收要 **两个终端**：一个 `npm run start:dev`，一个 `npm run start:worker`。只起 api 时，任务会一直 `queued`。
+- 配额和 ticks 共用，测 jobs 前可能要 `redis-cli DEL ai-quota:1`。
+- Nest 多入口：`nest start --entryFile worker`（`worker.ts` 放在 `src/`）。
+- 队列名自定，建议 `weekly-report`。
+
+#### 验收
+
+- 无 Token：POST/GET jobs → 401
+- 未导入工时：入队成功，worker 跑完后 GET 为 `failed`（不是 api 卡死）
+- 已导入工时：POST 立刻 201/200 + `queued`；稍后 GET → `completed` 且 `reportId` 能在库里查到周报
+- 只开 api、不开 worker：GET 一直 `queued`（证明活不在 HTTP 进程里）
+- 第 4 次 POST jobs（带 Token）→ 429
+- `POST /api/worktime/generate-report` 行为与现在相同
+
+卡住再问；做完喊 review。
+
 ## 进阶轨（2026-08-18 目标：全链路 + 基础设施）
 
 > **一条业务主线，不要拆成互不相关的玩具。**  
@@ -808,7 +901,7 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 | 练习 | 练什么 | 落在产品上 |
 |------|--------|------------|
 | **16** | Redis | 配额计数从 A 的内存/SQLite 迁到 Redis |
-| **17** | Queue + Worker | compose 加 `redis`、`worker`（可与 api 同镜像不同 `command`） |
+| **17** | Queue + Worker（本机进程，不上 compose） | `POST /api/jobs/weekly-report` 入队；独立 `start:worker` 调 `generateReport` |
 | **18** | 联调全链路 | 带 Token 入队 → worker 跑 → GET 完成；超额 429；非法 DTO 400 |
 
 现有同步 `generate-report` 可保留作开发开关，或逐步改成入队，避免两套长期分叉。
@@ -818,11 +911,11 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 **9 → … → 13 → 14 →（15 推迟上云）→ 16 → 17 → 18**  
 本地先把 PG 跑通，再引入 Redis/队列；compose 加 postgres 等上云再做。
 
-下一步：练习 14 已完成。用户说继续后再开练习 16（Redis）。练习 15 推迟到上云。
+下一步：练习 17 需求已开（BullMQ + 本机 Worker）。练习 15 推迟到上云。
 
 ## 下一对话建议开场动作
 
-1. 用户可提交练习 14，或说继续开练习 16。  
+1. 用户实现练习 17，或卡住提问。  
 2. 本地不用 Docker；练习 15 推迟到上云。  
 3. 上云剩余：证书 / htpasswd / 服务器 `.env`、compose 加 postgres。  
-4. `npm run start:dev`（注意勿多开占 3000）。
+4. 两个终端：`start:dev` + `start:worker`；勿多开占 3000。
