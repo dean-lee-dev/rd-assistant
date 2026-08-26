@@ -2,6 +2,7 @@ import { CommonModule } from '@angular/common';
 import {
   AfterViewChecked,
   Component,
+  DestroyRef,
   ElementRef,
   OnInit,
   ViewChild,
@@ -19,6 +20,8 @@ import { NzTagModule } from 'ng-zorro-antd/tag';
 import { API_BASE } from '../../core/api/api-base';
 import { MdViewComponent } from '../../shared/md-view.component';
 import { SseClient } from '../../shared/sse-client.service';
+import { interval } from 'rxjs';
+import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 
 /** 周报区块内容视图模式：原始规则版 / AI 润色版 */
 type ContentMode = 'original' | 'ai';
@@ -87,6 +90,13 @@ interface LatestResponse {
   report: Report | null;
 }
 
+interface JobStatusResponse {
+  jobId: string;
+  status: 'queued' | 'active' | 'completed' | 'failed';
+  reportId?: number;
+  error?: string;
+}
+
 /**
  * 工时周报页 — Excel 导入、周报生成/编辑/导出、AI 润色、右侧流式对话。
  *
@@ -110,6 +120,7 @@ interface LatestResponse {
   styleUrl: './weekly-report.component.scss',
 })
 export class WeeklyReportComponent implements OnInit, AfterViewChecked {
+  private readonly destroyRef = inject(DestroyRef);
   /** 右侧对话列表容器，用于自动滚到底部 */
   @ViewChild('chatList') chatListRef?: ElementRef<HTMLDivElement>;
   /** 本周完成工作富文本编辑区 */
@@ -251,20 +262,60 @@ export class WeeklyReportComponent implements OnInit, AfterViewChecked {
    */
   generate(): void {
     this.generating = true;
+    const url:string = `${API_BASE}/jobs/weekly-report`;
     this.http
-      .post<Report>(`${API_BASE}/worktime/generate-report`, { importId: this.importId })
+      .post<{jobId: number, status: string}>(url, { importId: this.importId })
       .subscribe({
-        next: (report) => {
-          this.report = this.normalizeReport(report);
-          this.chatMessages = report.chatMessages || [];
-          this.completedMode = 'original';
-          this.planMode = 'original';
-          this.markHtmlNeedsSync();
-          this.generating = false;
-          this.message.success('周报已生成（原始版）');
+        next: (data)=>{
+          this.pollJob(data.jobId);
         },
-        error: (error) => this.fail(error, '生成失败', 'generating'),
+        error: (error) => {
+          if ( error.status == 429 ) {
+            this.generating = false;
+            this.fail(error, 'AI 调用次数已达上限', 'generating');
+          } else {
+            this.generating = false;
+            this.fail(error, '生成失败', 'generating');
+          }
+        },
       });
+  }
+
+  
+
+  private pollJob(jobId: number): void {
+    const timer = interval(1000).pipe(takeUntilDestroyed(this.destroyRef)).subscribe(() => {
+      this.http.get<JobStatusResponse>(`${API_BASE}/jobs/${jobId}`).subscribe({
+        next: (data)=>{
+          if (data.status === 'completed') {
+            timer.unsubscribe();
+            const reportId = data.reportId;
+            this.http.get<Report>(`${API_BASE}/worktime/latest`).subscribe({
+                next: (res:any)=>{
+                    const report = res?.report?.id === reportId ? res.report : null;
+                    if (report) {
+                      this.report = this.normalizeReport(report);
+                      this.chatMessages = report.chatMessages || [];
+                      this.completedMode = 'original';
+                      this.planMode = 'original';
+                      this.markHtmlNeedsSync();
+                      this.generating = false;
+                      this.message.success('周报已生成（原始版）');
+                    } else {
+                      this.generating = false;
+                      this.message.error("生成失败");
+                    }
+                },
+                error: (error) => this.fail(error, '生成失败', 'generating'),
+              });
+          } else if ( data.status === 'failed' ) {
+            timer.unsubscribe();
+            this.generating = false;
+            this.message.error(data.error as string);
+          }
+        }
+      });
+    });
   }
 
   /**

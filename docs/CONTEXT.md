@@ -345,13 +345,22 @@ README.md
 | 2026-08-26 14:50 | 练习 17 二次 review：DTO、Guard providers、returnvalue 已有。P0：GET 读 `returnvalue.reportId`，Worker 返回的周报对象字段是 `id`；`importId` 被转成字符串；仍用 `src/` 导入。 |
 | 2026-08-26 14:54 | 练习 17 三次 review：`reportId` 形状对齐、importId 保持 number、相对路径导入。可标完成。P1：DTO 可加 `@Type(() => Number)`；404 文案英文。 |
 | 2026-08-26 14:59 | 提交并 push 练习 17：BullMQ 周报入队 + 独立 worker。开练习 18 需求：周报页入队并轮询。 |
+| 2026-08-26 15:06 | 练习 18 答疑：配额已在练习 17 挂在 `POST /api/jobs/weekly-report`（与 ticks 共用 `ai-quota:{userId}`）。同步 `generate-report` 仍无配额。18 只处理前端 429，不要再加一套配额。 |
+| 2026-08-26 15:07 | 答疑：进阶轨编号到 18。当前只剩练习 18（进行中）和练习 15（推迟上云）。18 做完本机 Nest 手写轨即收束，没有已开的 19+。 |
+| 2026-08-26 16:12 | 练习 18 代码 review：POST jobs + interval 轮询 + latest 按 reportId + 销毁停 interval 已有。P0：`!aiUsed` 当成生成失败（规则周报应展示）；failed 未用接口 `error`。P1：400 未展示校验文案；latest 无 error 回调。 |
+| 2026-08-26 16:17 | 练习 18 答疑：P0-1 不是靠 `return` 停 loading。`completed` 后应走 `normalizeReport`，现有分支里已有 `generating = false`。应删掉整段 `if (!aiUsed)`，不是只去掉 return。 |
+| 2026-08-26 16:18 | 练习 18 答疑：无 AI 配置时 job 仍 completed（规则周报）。成功 Toast「原始版」+ 页面 `aiError` Alert 是原同步生成行为；不要把 `!aiUsed` 当成生成失败。 |
+| 2026-08-26 16:20 | 练习 18 二次 review：P0 已改（completed 一律展示周报；failed 用 `data.error`）。可标完成。P1：400 仍泛化「生成失败」；latest 无 error 回调；文案带了需求里的「」。 |
+| 2026-08-26 16:27 | 练习 18 三次 review：P1 已改（POST 走 `fail()`；latest 有 error；id 对不上有提示）。可标完成。剩余为风格：429 分支与 `fail()` 重复；`any`。 |
+| 2026-08-26 16:36 | 练习 18 答疑：去掉 `any` 靠 `HttpClient` 泛型与 `next` 参数一致。POST jobs 不要标成 `Report`；latest 用已有 `LatestResponse`；GET job 补 `reportId`/`error`。 |
+| 2026-08-26 16:41 | 提交并 push 练习 18：周报页入队 `POST /api/jobs/weekly-report` 并轮询至完成。本机 Nest 手写轨 1–18 收束。练习 15 仍推迟上云。 |
 
 ## NestJS 手写练习（学习轨）
 
 > 目的：在现有 `apps/api` 上亲手写代码学 Nest，不另起仓库。  
 > 约定：Agent **只先给需求**；用户自己实现；卡住再问。每次进度必须回写本文件。  
 > **熟练标准（本仓库）**：能独立加一个与现网风格一致的功能模块（Module / Controller / Service / DTO / JWT / Prisma / 合适的 HTTP 状态码）。不是要学完 Nest 全集（微服务、GraphQL、CQRS 等本项目不用）。  
-> **进度（2026-08-26）**：1–17 完成。练习 18（前端入队 + 轮询）需求已开。练习 15（Docker）推迟到上云。
+> **进度（2026-08-26）**：1–18 完成（本机 Nest 手写轨收束）。练习 15（Docker）推迟到上云。
 
 ### 练习 1 — 健康检查 ✅ 已完成
 
@@ -851,7 +860,7 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 
 卡住再问；做完喊 review。
 
-### 练习 18 — 前端联调（入队 + 轮询）
+### 练习 18 — 前端联调（入队 + 轮询） ✅ 已完成（可按 P1 小清理）
 
 目标：周报页的「生成周报」走练习 17 的队列，不再同步卡在 `generate-report` 上。HTTP 立刻返回，页面轮询直到 `completed` / `failed`。
 
@@ -965,11 +974,11 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 **9 → … → 13 → 14 →（15 推迟上云）→ 16 → 17 → 18**  
 本地先把 PG 跑通，再引入 Redis/队列；compose 加 postgres 等上云再做。
 
-下一步：练习 18 需求已开（周报页入队 + 轮询）。练习 15 推迟到上云。
+下一步：练习 18 已提交。本机 Nest 手写轨收束。练习 15 推迟到上云。
 
 ## 下一对话建议开场动作
 
-1. 用户实现练习 18，或卡住提问。  
+1. 本机 1–18 已完成；无新练习除非用户另开。  
 2. 本地不用 Docker；练习 15 推迟到上云。  
 3. 上云剩余：证书 / htpasswd / 服务器 `.env`、compose 加 postgres。  
 4. 三个进程：`start:dev` + `start:worker` + 前端；勿多开占 3000。
