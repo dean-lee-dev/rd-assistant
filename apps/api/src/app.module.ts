@@ -12,6 +12,7 @@ import { FilesModule } from './files/files.module';
 import { TicksModule } from './ticks/ticks.module';
 import { RequestIdMiddleware } from './common/request-id.middleware';
 import { RedisModule } from './redis/redis.module';
+import { JobsModule } from './jobs/jobs.module';
 
 ensureDataDirs();
 
@@ -28,6 +29,7 @@ ensureDataDirs();
     FilesModule,
     TicksModule,
     RedisModule,
+    JobsModule
   ],
 })
 export class AppModule implements NestModule {

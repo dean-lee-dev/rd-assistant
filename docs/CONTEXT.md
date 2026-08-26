@@ -331,13 +331,27 @@ README.md
 | 2026-08-25 18:28 | 练习 16 二次 review：启动 `PING` 失败会 throw。可标完成。P1：多余 `setnx`、`Logger.log(user)`、`if (tick)` 恒真。 |
 | 2026-08-25 18:29 | 练习 16 三次 review：`setnx` / `Logger.log` / 恒真 if 已删。可标完成。P1：Guard 里未用的 `Logger`、`Observable` import。 |
 | 2026-08-25 18:31 | 提交并 push 练习 16：Redis `INCR` 配额 + 启动 PING。开练习 17 需求：BullMQ 入队生成周报 + 本机独立 worker（不上 compose）。 |
+| 2026-08-26 10:16 | 练习 17 答疑：`bullmq` 是包；API 用 `Queue` 入队，另一个进程用 `Worker` 消费。`@nestjs/bullmq` 只是 Nest 封装，不是第三种实现。 |
+| 2026-08-26 11:20 | 练习 17 答疑：Redis 在本任务中是 BullMQ 的队列存储（任务列表/状态）；练习 16 的配额计数也在同一 Redis 里。 |
+| 2026-08-26 11:26 | 练习 17 答疑：worker 用 bullmq 的 `Worker` 类，不是浏览器 Web Worker，也不是 `worker_threads`。 |
+| 2026-08-26 11:27 | 练习 17 答疑：需要 `npm install bullmq`（在 `apps/api` 下）；ioredis 不能代替。 |
+| 2026-08-26 13:07 | 练习 17 答疑：worker 入口和消费逻辑不必塞进同一个 ts；对齐 `main.ts` / Module / Service 即可。 |
+| 2026-08-26 13:25 | 练习 17 答疑：无导入时 GET 应为 failed（service 抛「请先导入」），这就是验收；要 completed 再走现有导入接口。 |
+| 2026-08-26 14:18 | 练习 17 排错：worker 启动失败，因 WorkerModule 未导入 PrismaModule，AiService 拿不到 PrismaService。 |
+| 2026-08-26 14:25 | 练习 17 答疑：BullMQ 的 `connection` 应 `new Redis(REDIS_URL, { maxRetriesPerRequest: null })`，不要 `{ url }`；不要复用配额用的那条 ioredis。 |
+| 2026-08-26 14:30 | 练习 17 答疑：验收步骤（两终端、无导入 failed、只开 api 则一直 queued、配额 429）。 |
+| 2026-08-26 14:39 | 练习 17 代码 review：Jobs 已进 AppModule、GET 走 service、Worker 调 generateReport。P0：`reportId` 用了 job.id；无 DTO；JobsModule 未登记 AiQuotaGuard；`src/` 导入。 |
+| 2026-08-26 14:47 | 练习 17 答疑：`generateReport` 已返回周报行，Worker `return report`，GET 用 `job.returnvalue.id`。 |
+| 2026-08-26 14:50 | 练习 17 二次 review：DTO、Guard providers、returnvalue 已有。P0：GET 读 `returnvalue.reportId`，Worker 返回的周报对象字段是 `id`；`importId` 被转成字符串；仍用 `src/` 导入。 |
+| 2026-08-26 14:54 | 练习 17 三次 review：`reportId` 形状对齐、importId 保持 number、相对路径导入。可标完成。P1：DTO 可加 `@Type(() => Number)`；404 文案英文。 |
+| 2026-08-26 14:59 | 提交并 push 练习 17：BullMQ 周报入队 + 独立 worker。开练习 18 需求：周报页入队并轮询。 |
 
 ## NestJS 手写练习（学习轨）
 
 > 目的：在现有 `apps/api` 上亲手写代码学 Nest，不另起仓库。  
 > 约定：Agent **只先给需求**；用户自己实现；卡住再问。每次进度必须回写本文件。  
 > **熟练标准（本仓库）**：能独立加一个与现网风格一致的功能模块（Module / Controller / Service / DTO / JWT / Prisma / 合适的 HTTP 状态码）。不是要学完 Nest 全集（微服务、GraphQL、CQRS 等本项目不用）。  
-> **进度（2026-08-25）**：1–16 完成。练习 17（BullMQ + 本机 Worker）需求已开。练习 15（Docker）推迟到上云。
+> **进度（2026-08-26）**：1–17 完成。练习 18（前端入队 + 轮询）需求已开。练习 15（Docker）推迟到上云。
 
 ### 练习 1 — 健康检查 ✅ 已完成
 
@@ -790,7 +804,7 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 
 卡住再问；做完喊 review。
 
-### 练习 17 — Queue + Worker（周报入队）
+### 练习 17 — Queue + Worker（周报入队） ✅ 已完成（可按 P1 小清理）
 
 目标：学会 **队列 + 独立 worker 进程**。HTTP 立刻返回任务 id，真正调 AI、写 PG 的活在另一个进程做。
 
@@ -834,6 +848,46 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 - 只开 api、不开 worker：GET 一直 `queued`（证明活不在 HTTP 进程里）
 - 第 4 次 POST jobs（带 Token）→ 429
 - `POST /api/worktime/generate-report` 行为与现在相同
+
+卡住再问；做完喊 review。
+
+### 练习 18 — 前端联调（入队 + 轮询）
+
+目标：周报页的「生成周报」走练习 17 的队列，不再同步卡在 `generate-report` 上。HTTP 立刻返回，页面轮询直到 `completed` / `failed`。
+
+后端接口已经有了，**不要改** jobs / worker 行为（除非发现 bug 必须修）。同步 `POST /api/worktime/generate-report` **保留**（方便对照），只改前端默认路径。
+
+#### 功能需求
+
+1. **改** `WeeklyReportComponent.generate()`（`apps/web/src/app/pages/weekly-report/`）：
+   - `POST /api/jobs/weekly-report`，body `{ importId }`（现有 `this.importId`）
+   - 用返回的 `jobId` 轮询 `GET /api/jobs/:id`（建议 1s 一次）
+   - `queued` / `active`：按钮保持 loading（现有 `generating`）
+   - `completed`：用 `reportId` 把周报填进页面（与现在 generate 成功后的 `normalizeReport` / 对话重置一致）
+   - `failed`：停止轮询，Toast/Alert 显示 `error`（例如「请先导入工时 Excel」）
+   - 组件销毁时**必须停掉**轮询（`ngOnDestroy` 或 `takeUntilDestroyed`），避免切页后还在打接口
+2. **拉周报内容**：jobs 的 GET 只给 `reportId`，没有整份周报。可以：
+   - `GET /api/worktime/latest`，确认 `report.id === reportId` 后再渲染；或
+   - 后端加 `GET /api/worktime/reports/:id`（JWT），前端按 id 取
+   不要把整份周报塞进 BullMQ 的 returnvalue。
+3. **错误**：
+   - HTTP **429**：提示配额用尽（中文），停止 loading
+   - HTTP **400**：校验失败提示，不要开始轮询
+4. **禁止**：删同步 generate-report 接口；改配置洞察；compose / Docker；把 Worker 绑进 `start:dev`。
+
+#### 提示
+
+- Token 已由现有 HttpClient 拦截器带上，不必手写 Authorization。
+- 验收时仍要 **两个终端**：`start:dev`（api）+ `start:worker` + 前端 `ng serve`。只开 api 时按钮会一直转。
+- 配额和 ticks 共用，测之前可能要 `redis-cli DEL ai-quota:1`。
+
+#### 验收
+
+- 已导入 Excel：点「生成周报」按钮马上 loading，过几秒周报出现（与同步生成后的页面一致）
+- 未导入：按钮可点或保持 disabled（现有是 `!importId` 禁用）——若绕过前端直接 POST jobs，GET 为 failed；页面路径以导入后生成为主
+- 只开 api、不开 worker：按钮一直 loading，直到你愿意停（至少说明没把活做在浏览器里）；更好的体验是超时后提示「生成超时，请确认 worker 已启动」，**可选**
+- 第 4 次生成（配额未清）→ 页面提示上限，不是白屏
+- 同步 `POST /api/worktime/generate-report` 仍可用（Apifox / curl）
 
 卡住再问；做完喊 review。
 
@@ -911,11 +965,11 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 **9 → … → 13 → 14 →（15 推迟上云）→ 16 → 17 → 18**  
 本地先把 PG 跑通，再引入 Redis/队列；compose 加 postgres 等上云再做。
 
-下一步：练习 17 需求已开（BullMQ + 本机 Worker）。练习 15 推迟到上云。
+下一步：练习 18 需求已开（周报页入队 + 轮询）。练习 15 推迟到上云。
 
 ## 下一对话建议开场动作
 
-1. 用户实现练习 17，或卡住提问。  
+1. 用户实现练习 18，或卡住提问。  
 2. 本地不用 Docker；练习 15 推迟到上云。  
 3. 上云剩余：证书 / htpasswd / 服务器 `.env`、compose 加 postgres。  
-4. 两个终端：`start:dev` + `start:worker`；勿多开占 3000。
+4. 三个进程：`start:dev` + `start:worker` + 前端；勿多开占 3000。

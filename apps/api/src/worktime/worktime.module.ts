@@ -7,5 +7,6 @@ import { WorktimeService } from './worktime.service';
   imports: [SettingsModule],
   controllers: [WorktimeController],
   providers: [WorktimeService],
+  exports: [WorktimeService],
 })
 export class WorktimeModule {}
