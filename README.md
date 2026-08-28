@@ -12,7 +12,7 @@
 - 本机 PostgreSQL 17（已装路径示例 `D:\software\PostgreSQL\17`）
 - Windows / macOS / Linux 均可
 
-> 数据库为 Prisma 管理的 **PostgreSQL**。`apps/api/.env` 设置 `DATABASE_URL`（见根目录 `.env.example`）。旧 SQLite 文件若仍在 `apps/data/` 仅作备份，进程不读。Docker Compose 加 postgres 推迟到上云。
+> 数据库为 Prisma 管理的 **PostgreSQL**。本地用 `apps/api/.env` 的 `DATABASE_URL` 连本机库。旧 SQLite 文件若仍在 `apps/data/` 仅作备份，进程不读。上云用仓库根目录 `.env` + Compose（postgres / redis / api / worker / web）。
 
 ## 安装
 
@@ -25,23 +25,27 @@ cd ../web
 npm install
 ```
 
-本地 API 需要 `DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/assistant`（见 `apps/api/.env` / 根目录 `.env.example`）。未配置则启动失败。首次空库会 seed admin。
+本地 API 需要 `apps/api/.env` 中的 `DATABASE_URL=postgresql://USER:PASSWORD@localhost:5432/assistant`。未配置则启动失败。首次空库会 seed admin。上云 Compose 用仓库根目录 `.env`（主机名是 `postgres` / `redis`），见下方部署节。
 
 ## 启动
 
-开两个终端：
+本地需要本机 PostgreSQL、本机 Redis，以及三个终端（周报「生成」走队列，必须另开 worker）：
 
 ```bash
 # 终端 1 — API http://localhost:3000
 cd apps/api
 npm run start:dev
 
-# 终端 2 — Web http://localhost:5173
+# 终端 2 — Worker（消费 weekly-report 队列）
+cd apps/api
+npm run start:worker
+
+# 终端 3 — Web http://localhost:5173
 cd apps/web
 npm start
 ```
 
-浏览器打开 http://localhost:5173
+浏览器打开 http://localhost:5173。只开 API、不开 worker 时，生成周报会一直 queued。
 
 ## 默认账号
 
@@ -82,33 +86,42 @@ data/
 
 ## 部署（单台云主机 + Docker Compose + nginx）
 
-nginx 是唯一公网入口，前端静态文件与 `/api`、`/uploads` 同源，因此无需 CORS。API 容器**不映射端口**，仅通过内部网络供 nginx 访问。
+nginx 是唯一公网入口，前端静态文件与 `/api`、`/uploads` 同源，因此无需 CORS。API / postgres / redis **不映射到公网**，只走 Compose 内部网络。公网安全组只开 **22 / 80 / 443**。
+
+服务：`postgres`、`redis`、`api`（migrate + HTTP）、`worker`（`node dist/worker`，不再 migrate）、`web`（nginx）。
+
+本地开发继续 `start:dev`，不要用这套 Compose 当日常环境。
 
 ```bash
-# 1. 生成密钥与管理员密码
+# 1. 在服务器仓库根目录生成 .env（不要提交）
 cp .env.example .env
-openssl rand -base64 48        # 填入 JWT_SECRET，ADMIN_PASS 自行设强密码
+openssl rand -base64 48        # 填入 JWT_SECRET；ADMIN_PASS / POSTGRES_PASSWORD 自行设强密码
+# DATABASE_URL 主机名必须是 postgres，用户/库名与 POSTGRES_* 一致
+# REDIS_URL=redis://redis:6379
+chmod 600 .env
 
-# 2. 生成整站 Basic Auth 凭据（在应用登录之外再加一道门）
+# 2. 生成整站 Basic Auth 凭据（在应用登录之外再加一道门；必须配 HTTPS）
 htpasswd -c deploy/.htpasswd <用户名>
 
 # 3. 放置证书（certbot 签发后）
 #    deploy/certs/fullchain.pem
 #    deploy/certs/privkey.pem
 
-# 4. 启动
+# 4. 启动（仅 api 容器会 prisma migrate deploy）
 docker compose up -d --build
 ```
 
-`JWT_SECRET` / `ADMIN_PASS` 在 `NODE_ENV=production` 下缺失会**直接启动失败**，这是刻意设计，避免静默退回开发兜底密钥。
+`JWT_SECRET` / `ADMIN_PASS` / `DATABASE_URL` / `REDIS_URL` / `POSTGRES_*` 缺失时相关容器会启动失败，这是刻意设计。
 
-容器启动前会执行 `prisma migrate deploy`。当前 Dockerfile 运行阶段仍拼 sqlite（练习 15 / 上云时再改成 postgres）。本地开发请用本机 PostgreSQL，不要依赖 compose。
+空库靠 seed：生产管理员是 `.env` 里的 `ADMIN_USER` / `ADMIN_PASS`，不要用开发兜底 `admin123`。不迁本机业务数据，Excel / AI Key 在云上重新配置。
 
 ### 部署注意事项
 
-- **本地已是 PostgreSQL。** 现有 compose 尚未包含 postgres 服务，上云前不要加 `replicas`。
-- **Basic Auth 必须配合 HTTPS**：凭证只是 base64 编码。它同时保护了 `/uploads`（浏览器对 `<img>` 会自动附带同源 Basic 凭证），因此内部系统截图不会对公网裸奔。
-- **持久卷务必挂到 `DATA_DIR`（容器内 `/app/data`）** 以保存上传文件。若照旧文档挂仓库根的 `data/`，文件会留在容器可写层，`docker compose down` 即丢且全程不报错。
-- nginx 已配 `proxy_buffering off` 与 `proxy_read_timeout 600s`，缺任一项都会让 SSE 流式输出表现为「卡很久后一次性全部出现」或长分析被掐断。
+- **不要加 `replicas`。** 一台机一份 postgres / redis / worker 即可。
+- **不要**把 3000、5432、6379 映射到宿主机或安全组。
+- 2GB 内存上尽量避免同时 `docker compose build` api+web；4GB 一般可在机上构建。构建仍建议保留少量 swap。
+- **Basic Auth 必须配合 HTTPS**：凭证只是 base64 编码。它同时保护了 `/uploads`（浏览器对 `<img>` 会自动附带同源 Basic 凭证）。
+- **上传卷**挂 `DATA_DIR`（容器内 `/app/data`，volume `assistant-data`）。**数据库**用独立 volume `pg-data`，不要和上传混在一个目录。
+- nginx 已配 `proxy_buffering off` 与 `proxy_read_timeout 600s`，缺任一项都会让 SSE 表现为「卡很久后一次性全部出现」或长分析被掐断。
 - 上传限制 50MB（`MAX_EXCEL_UPLOAD_BYTES` 与 nginx `client_max_body_size` 需保持一致），仅接受 `.xlsx`。
 - 数据库含**明文 API Key**，备份包属敏感物，勿放公开可读的对象存储。

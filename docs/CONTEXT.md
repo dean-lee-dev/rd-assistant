@@ -1,6 +1,6 @@
 # 个人研发效能助手 — 跨对话上下文
 
-> **给后续 Agent / 新对话**：开场先读本文件，再读 `docs/10001/技术方案.md`；若要对照代码消化全系统，读 [系统消化文档.md](./10001/系统消化文档.md)。  
+> **给后续 Agent / 新对话**：开场先读本文件，再读 `docs/10001/技术方案.md`；若要对照代码消化全系统，读 [系统消化文档.md](./10001/系统消化文档.md)。Nest 手写练习 1–18（除 15）要点见 [NestJS手写练习要点.md](./10001/NestJS手写练习要点.md)。  
 > **维护约定**：每次对话只要产生需求变更、技术决策、实现进度、学习练习或待办变化，必须在结束前更新本文件（追加「变更日志」并改相关小节）。用户明确要求：**每次互动都要提炼进 CONTEXT**。
 
 ## 项目标识
@@ -33,10 +33,11 @@
 12. **（2026-07-29）部署形态：单台云主机 + Docker Compose + nginx 反代，前端静态文件同源托管。**
 13. **（2026-08-07）DB 演进：HTTP 层为 Nest Fastify。**  
     **（2026-08-19）本机已装 PostgreSQL 17.11**，目录 `D:\software\PostgreSQL\17`（`bin\psql.exe`）。  
-    **（2026-08-25）本地开发切本机 PG（练习 14），不迁旧 SQLite 业务数据。Docker 日常不用；练习 15（compose 加 postgres / 改启动 CMD）推迟到上云时再做。** 现有 Dockerfile ×2 与 compose（api+web+nginx）保留，不要删。
+    **（2026-08-25）本地开发切本机 PG（练习 14），不迁旧 SQLite 业务数据。日常仍 `start:dev`，不用 Docker。**  
+    **（2026-08-27）练习 15 已开：腾讯云 2C2G 上云。compose 加 postgres / redis / worker；改 Dockerfile CMD。本地开发路径不变。**
 14. **（2026-07-29）上线原则：只做「影响上线部署」的改动，且所有改动必须兼容本地运行（默认值保持现状，靠环境变量/`isDevMode()` 区分）。**
 
-> ⚠️ **运维建议**：本地已是本机 PostgreSQL。现有 compose 尚未加 postgres 服务（练习 15 / 上云）；上云前勿加 `replicas`。
+> ⚠️ **运维建议**：本地仍本机 PostgreSQL + Redis。上云用 compose（postgres/redis/api/worker/web），**不要加 replicas**。机器是 2C2G，构建与运行都要控内存。
 
 ## 当前状态
 
@@ -45,7 +46,7 @@
 | 需求澄清 | 已完成 |
 | 技术方案 | 已完成 |
 | 代码实现 | **MVP 已落地**；2026-07-29 上云改造；2026-08-07 Prisma + Fastify；**2026-08-25 本地切 PostgreSQL 17.11** |
-| 部署就绪 | 产物齐备（Dockerfile×2 / compose / nginx.conf）；待服务器侧配证书与 `.htpasswd` |
+| 部署就绪 | 练习 15 进行中：compose 尚未加 postgres/redis/worker；Dockerfile CMD 仍拼 sqlite。待仓库改完 + 服务器证书 / htpasswd / `.env` |
 | 默认管理员 | `admin` / `admin123`（见 README） |
 | 联调 | 登录、工时导入、规则周报生成已用样例验证；AI 需自行配置 Key |
 
@@ -58,6 +59,7 @@ apps/data/         ★ 运行文件：uploads/（旧 sqlite 若在仅备份，�
 data/              仅 sample-worktime.xlsx + .gitkeep（非运行数据）
 docs/10001/技术方案.md
 docs/10001/系统消化文档.md
+docs/10001/NestJS手写练习要点.md
 docs/CONTEXT.md
 README.md
 ```
@@ -114,7 +116,7 @@ README.md
 
 ### 明确推迟
 
-练习 15（compose 加 postgres，上云时再做）、`/uploads` 签名 URL（Basic Auth 暂兜）、AI 限流、AI HTML 消毒、周报对话 `taskName` bug、导入图片目录清理。
+`/uploads` 签名 URL（Basic Auth 暂兜）、AI HTML 消毒、周报对话 `taskName` bug、导入图片目录清理。练习 15 已开（腾讯云 2C2G）。
 
 > ⚠️ 推迟项中 **「分析行数上限」有自伤风险**：Basic Auth 挡不住自己手滑点全量分析，单次即数万 token。
 
@@ -354,13 +356,30 @@ README.md
 | 2026-08-26 16:27 | 练习 18 三次 review：P1 已改（POST 走 `fail()`；latest 有 error；id 对不上有提示）。可标完成。剩余为风格：429 分支与 `fail()` 重复；`any`。 |
 | 2026-08-26 16:36 | 练习 18 答疑：去掉 `any` 靠 `HttpClient` 泛型与 `next` 参数一致。POST jobs 不要标成 `Report`；latest 用已有 `LatestResponse`；GET job 补 `reportId`/`error`。 |
 | 2026-08-26 16:41 | 提交并 push 练习 18：周报页入队 `POST /api/jobs/weekly-report` 并轮询至完成。本机 Nest 手写轨 1–18 收束。练习 15 仍推迟上云。 |
+| 2026-08-26 16:44 | 答疑：练习 15 仍等上云再开。原验收是 `docker compose up` 能登录；现 Dockerfile CMD 仍拼 sqlite。上云时 15 还会带上 redis + worker（16–18 已依赖），以及证书 / htpasswd / 服务器 `.env`。 |
+| 2026-08-26 16:47 | 整理 `docs/10001/NestJS手写练习要点.md`：1–18（除 15）分四块（CRUD / 请求链 / PG / Redis+队列+前端）+ 总体总结。 |
+| 2026-08-26 17:09 | 重写要点文档：每块先「知识串」，每题先展开知识再标「要点」；文末总链 + 十条突出要点。 |
+| 2026-08-27 15:02 | 用户已购腾讯云 2C2G（约 2 核 2GB / 50GB 盘 / 300GB 流量包）。开练习 15：compose 加 postgres+redis+worker、改 Dockerfile CMD；兼顾 2G 内存；服务器侧证书 / htpasswd / `.env`。 |
+| 2026-08-27 15:29 | 答疑：升到 4GB 内存可以，且更合适。2G 能跑但构建易 OOM；4G 可在机上 `docker compose build`，仍建议给 postgres/redis/api/worker 设 mem_limit，不要 replicas。 |
+| 2026-08-27 15:31 | 答疑：前端页面少不等于构建省内存。单独 `ng build` 在 2G+swap 上常常能过；真正容易 OOM 的是 `docker compose build` 同时编 api+web，或构建时其它容器已占内存。运行期静态 nginx 很小。 |
+| 2026-08-27 15:36 | 答疑：4G 对这套个人站运行不紧张；构建仍有一两分钟峰值。不必上 8G。仍建议 mem_limit、不要 replicas。 |
+| 2026-08-27 15:46 | 练习 15 答疑：从何开始——先改仓库两处（Dockerfile CMD 去 sqlite；compose 加 postgres/redis/worker），本机 `nest build` 确认 `dist/worker.js`。证书/安全组放到仓库改完、能 review 之后。4G 可后升。 |
+| 2026-08-27 16:16 | 练习 15 答疑：Dockerfile 第 2 步只改**运行阶段 CMD**。删掉启动时 `export DATABASE_URL=file:...sqlite`，保留 `prisma migrate deploy && node dist/main`，让 compose 注入的 PG 连接串生效。构建阶段第 12 行占位 URL 不要动。 |
+| 2026-08-27 16:21 | 练习 15 答疑：真实 PG 账号密码只放服务器（或本机）的 `.env`，compose 用 `${VAR}` 注入容器。不要写进 Dockerfile / yaml / Git。 |
+| 2026-08-27 16:23 | 练习 15 答疑：云上 `.env` 是单机 compose 的常规做法。风险来自文件被提交/权限过宽/SSH 暴露，不是「密码写在服务器上」本身。权限 600、不进 Git、安全组收紧即可。 |
+| 2026-08-27 16:31 | 练习 15：Dockerfile CMD 已改为 migrate + `node dist/main`。下一步改 `docker-compose.yml` 加 postgres/redis/worker，并更新 `.env.example`。 |
+| 2026-08-28 09:41 | 练习 15 代码 review：CMD、api 注入 DATABASE_URL/REDIS_URL、worker 同镜像已有。P0：postgres/redis 不是完整服务（缺 image/volume/healthcheck）；`depends_on` 写法无效；worker 未注入 DATABASE_URL/REDIS_URL。P1：README 仍写 sqlite；example 密码写成了 assistant。 |
+| 2026-08-28 09:56 | 练习 15 二次 review：depends_on 形状、worker 的 DATABASE_URL/REDIS_URL、postgres image+volume 已有。P0：`healthcheck: pg_isready` 不是合法 compose；redis 的 command 写成了子键 `redis-server`；redis 无 healthcheck 则 `service_healthy` 会一直等。 |
+| 2026-08-28 10:00 | 练习 15 三次 review：postgres/redis healthcheck、command、pg-data、worker 连接串已齐。compose 结构可过。P1：README/文件头仍写 sqlite；worker 未挂上传卷；mem_limit 未写。仓库 A 段差文档；B 段（服务器）未做。 |
+| 2026-08-28 10:01 | 练习 15：已改 README 部署节、compose 文件头、`.env.example`。本地启动说明补上 `start:worker`。下一步服务器 B 段：安全组 → Docker → 域名证书 → htpasswd → 根目录 `.env` → `compose up`。 |
+| 2026-08-28 18:20 | 提交并 push 练习 15 仓库 A 段：compose 加 postgres/redis/worker，Dockerfile CMD 用环境变量 migrate。服务器 B 段未做。 |
 
 ## NestJS 手写练习（学习轨）
 
 > 目的：在现有 `apps/api` 上亲手写代码学 Nest，不另起仓库。  
 > 约定：Agent **只先给需求**；用户自己实现；卡住再问。每次进度必须回写本文件。  
 > **熟练标准（本仓库）**：能独立加一个与现网风格一致的功能模块（Module / Controller / Service / DTO / JWT / Prisma / 合适的 HTTP 状态码）。不是要学完 Nest 全集（微服务、GraphQL、CQRS 等本项目不用）。  
-> **进度（2026-08-26）**：1–18 完成（本机 Nest 手写轨收束）。练习 15（Docker）推迟到上云。
+> **进度（2026-08-27）**：1–14、16–18 完成。练习 15（腾讯云 2C2G 上云 / compose）需求已开。要点文档：[NestJS手写练习要点.md](./10001/NestJS手写练习要点.md)。
 
 ### 练习 1 — 健康检查 ✅ 已完成
 
@@ -773,6 +792,81 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 
 卡住再问；做完喊 review。
 
+### 练习 15 — Docker Compose 上云（腾讯云 2C2G）
+
+目标：单台云主机用 **Docker Compose** 跑通整站。本地日常仍 `start:dev` + 本机 PG/Redis，**不要**改本地开发默认值。
+
+现有 compose 只有 `api` + `web`（nginx）。api Dockerfile 的 **CMD 仍拼 sqlite**，上云不起库会挂。16–18 之后云上还需要 **redis** 和 **worker**，否则登录也许能过，周报入队/配额会挂。
+
+机器：**2 核 2GB / 系统盘 50GB**。内存很紧。postgres + redis + api + worker + nginx 能塞进去，但 **不要在这台机器上编译 Angular/Nest**（`docker compose build` 很容易 OOM）。优先本机构建镜像再传到服务器，或给机器加 **1～2GB swap** 后再构建。
+
+不要加 `replicas`。api **继续不映射端口**。公网只开 80/443（SSH 22 另算）。**不要**把 3000 / 5432 / 6379 暴露到安全组。
+
+#### A. 仓库里要改的（练习本体）
+
+1. **`docker-compose.yml` 增加服务**（均不映射到宿主机端口，只走 compose 网络）：
+   - **postgres**：官方镜像即可；数据用 **named volume**；`POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB` 来自 `.env`（`${VAR:?}` 强制，不要写死真实密码进 yaml）。`healthcheck`：`pg_isready`。建议 `command` 或环境把 `shared_buffers` 压到约 64MB，compose `mem_limit` / `deploy.resources.limits.memory` 约 **256MB**。
+   - **redis**：`redis:7-alpine` 即可；建议 `maxmemory 64mb` + `maxmemory-policy noeviction`（BullMQ 不要把任务 key 挤掉）。内存限制约 **64～128MB**。不必持久化 RDB（配额丢了能接受；要持久可再加 volume）。
+   - **api**：`depends_on` postgres、redis **healthy**。环境变量至少：
+     - 已有：`NODE_ENV=production`、`DATA_DIR=/app/data`、`JWT_SECRET`、`ADMIN_USER`、`ADMIN_PASS`、`TZ`
+     - 新增：`DATABASE_URL=postgresql://USER:PASSWORD@postgres:5432/DB`（用户/库名与 postgres 服务一致，密码 URL 编码）
+     - 新增：`REDIS_URL=redis://redis:6379`
+     - 内存限制建议 **384MB**
+   - **worker**：与 api **同一镜像**（不要再写一份 Dockerfile）。`command` 只跑 `node dist/worker`（先在本机 `npm run build` 确认 `dist/worker.js` 存在）。**不要**在 worker 里再 `prisma migrate deploy`。环境与 api 相同（`DATABASE_URL`、`REDIS_URL`、`JWT_SECRET` 等）。`depends_on` postgres + redis healthy；`restart: unless-stopped`（若 api 还在 migrate，worker 可先失败再起来）。内存限制建议 **384MB**。
+   - **web**：保持 80/443；`depends_on` api。内存限制几十 MB 即可。
+2. **改 `apps/api/Dockerfile` 运行阶段 CMD**：
+   - **删掉** `export DATABASE_URL="file:${DATA_DIR}/assistant.prisma.sqlite"`
+   - 使用 compose 注入的 `DATABASE_URL`：`npx prisma migrate deploy && node dist/main`
+   - 构建阶段占位 URL 保持 postgresql（练习 14 已做），不要写真实密码
+3. **`.env.example`（根目录）**：补上云 compose 会用到的占位：`POSTGRES_USER` / `POSTGRES_PASSWORD` / `POSTGRES_DB`、以及容器内形态的 `DATABASE_URL`、`REDIS_URL` 说明。仍然 **不要真实密码**。
+4. **README 部署章节**：按新 compose 改启动说明；写明 2C2G 不要在服务器上 build、安全组不要开 5432/6379、本地开发仍不用 compose。
+5. **2C2G 内存（建议写进 compose，可按实际微调）**：postgres ~256MB、redis ~64MB、api ~384MB、worker ~384MB。总和低于 2GB，留给系统和 Docker。不要给 postgres 默认几百 MB `shared_buffers`。
+6. **禁止**：
+   - 改 `start:dev` / 本地必须 Docker 才能开发
+   - 把 Worker 注册进 `AppModule`（两个容器会抢任务，也破坏「HTTP 不干 AI」）
+   - 提交 `.env`、证书、`.htpasswd`、真实密码
+   - 安全组对公网开放 postgres/redis/api
+   - `replicas`、把 sqlite 再接回来
+   - 改工时/配置洞察业务逻辑（除非启动缺 env 导致挂）
+
+#### B. 只在服务器上做（代办不了，但要一起验收）
+
+1. 安全组：入站 **22 / 80 / 443**。不要 3000、5432、6379。
+2. 安装 Docker Engine + Compose 插件；建议加 **1～2GB swap**（没 swap 时构建或 Node 峰值容易被 OOM killer）。
+3. 域名解析到这台机（HTTPS 需要）。用 certbot 签证书，放到 `deploy/certs/`（`fullchain.pem` + `privkey.pem`），与现有 `deploy/nginx.conf` 一致。
+4. `htpasswd -c deploy/.htpasswd <用户名>`（整站 Basic Auth，必须配 HTTPS）。
+5. 服务器 `.env`：`JWT_SECRET`（`openssl rand -base64 48`）、强 `ADMIN_PASS`、`POSTGRES_*`、据此拼 `DATABASE_URL`。**不要**用开发兜底 `admin123` 当生产密码。
+6. 启动：镜像在内存够的地方 build 后 `docker compose up -d`（或加了 swap 再 `--build`）。只让 **api** 跑 migrate。
+7. 空库靠现有 seed：生产管理员是 `.env` 里的 `ADMIN_USER` / `ADMIN_PASS`。不迁本机 PG 业务数据（与练习 14 决策一致），Excel / AI Key 在云上重新配。
+
+#### 提示
+
+- hostname 用服务名：`postgres`、`redis`，不要 `localhost`（那是容器自己）。
+- BullMQ 的 Redis 仍要 `maxRetriesPerRequest: null` 那条独立连接，代码里已有，compose 只需把 `REDIS_URL` 指到 `redis://redis:6379`。
+- nginx 已有 SSE 超时与 `proxy_buffering off`，不要改坏。
+- 上传卷继续 `assistant-data:/app/data`。postgres 另用 volume，不要和上传混在一个目录里。
+- 本机验证 compose（可选）：若本机 Docker 内存够，可 `docker compose up` 冒烟；**不要**让它占用 80 打掉你日常工作。验收主场在云主机。
+
+#### 验收
+
+**仓库 / 镜像**
+
+- Dockerfile CMD 不再出现 `file:` sqlite
+- compose 有 postgres、redis、api、worker、web；5432/6379/3000 不映射到公网
+- `.env.example` 有占位；Git 无真实密钥
+
+**云主机（2C2G）**
+
+- `docker compose ps` 五个服务都 healthy / running（worker 无 healthcheck 则 running 即可）
+- 浏览器：HTTPS + Basic Auth 之后能打开登录页
+- 应用登录（seed 的管理员）成功；`GET /api/health` 200
+- 重启 `docker compose restart` 后仍能登录（postgres volume 还在）
+- 导入一份工时 Excel → 点「生成周报」能 **completed**（证明 worker + redis + pg 通了）
+- 第 4 次生成（配额未清）→ 429
+- 安全组扫描：公网连不上 5432 / 6379 / 3000
+
+卡住再问；做完喊 review。
+
 ### 练习 16 — Redis（配额计数） ✅ 已完成（可按 P1 小清理）
 
 目标：把练习 11 的 **内存 `Map`** 换成 **Redis**。接口行为不变：仍只拦 `POST /api/ticks/stream`，每个 `userId` 成功 3 次，第 4 次 **429**。重启 api **不应**清零（这就是和 Map 的差别）。
@@ -947,9 +1041,9 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 | 练习 | 练什么 | 落在产品上 |
 |------|--------|------------|
 | **14** | Prisma datasource PG；新 migration 基线 | `DATABASE_URL` 连本机 `D:\software\PostgreSQL\17` |
-| **15** | Docker（**推迟上云**） | compose 加 `postgres`；api 等 PG healthy；改 Dockerfile CMD，不再拼 sqlite |
+| **15** | Docker（**已开 / 腾讯云 2C2G**） | compose 加 postgres、redis、worker；api 等 healthy；Dockerfile CMD 用 `DATABASE_URL`，不再拼 sqlite |
 
-验收（14）：`start:dev` 能登录；进程不再读 SQLite。验收（15，上云时）：`docker compose up` 能登录。
+验收（14）：`start:dev` 能登录；进程不再读 SQLite。验收（15）：云上 `docker compose up` 能登录，周报入队能完成。
 
 ### 阶段 C — Redis + Queue（AI 任务中心）
 
@@ -971,14 +1065,14 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 
 ### 建议顺序
 
-**9 → … → 13 → 14 →（15 推迟上云）→ 16 → 17 → 18**  
-本地先把 PG 跑通，再引入 Redis/队列；compose 加 postgres 等上云再做。
+**9 → … → 13 → 14 → 16 → 17 → 18 → 15（上云）**  
+本地先把 PG/Redis/队列跑通；compose 在腾讯云 2C2G 上做。
 
-下一步：练习 18 已提交。本机 Nest 手写轨收束。练习 15 推迟到上云。
+下一步：练习 15 需求已开（腾讯云 2C2G：compose + 证书 / htpasswd / 服务器 `.env`）。本地 `start:dev` 不变。
 
 ## 下一对话建议开场动作
 
-1. 本机 1–18 已完成；无新练习除非用户另开。  
-2. 本地不用 Docker；练习 15 推迟到上云。  
-3. 上云剩余：证书 / htpasswd / 服务器 `.env`、compose 加 postgres。  
-4. 三个进程：`start:dev` + `start:worker` + 前端；勿多开占 3000。
+1. 用户实现练习 15 仓库改动，或问 2C2G / 证书 / 安全组。  
+2. 本地仍不用 Docker 开发；云上不要暴露 5432/6379/3000。  
+3. 2C2G 不要在服务器上编译前端；建议 swap 或本机 build 镜像。  
+4. 三个本地进程照旧：`start:dev` + `start:worker` + 前端。

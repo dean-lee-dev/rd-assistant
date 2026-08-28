@@ -1,7 +1,7 @@
 # 单台云主机部署：nginx 是唯一公网入口，api 不对外暴露端口。
 #
-# ⚠️ SQLite（Prisma 文件库）期间仍建议单实例：并发写友好度有限。
-# 不要加 replicas；多实例请等迁 PostgreSQL。导入或长时间 AI 进行中尽量避免硬重启。
+# postgres / redis / api / worker / web。不要加 replicas。
+# 不要把 3000 / 5432 / 6379 映射到公网。导入或长时间 AI 进行中尽量避免硬重启。
 
 services:
   api:
@@ -17,8 +17,15 @@ services:
       ADMIN_PASS: ${ADMIN_PASS:?ADMIN_PASS 未配置}
       # 与本地保持一致，避免对话时间戳与用量时间偏移
       TZ: Asia/Shanghai
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL 未配置}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL 未配置}
     volumes:
       - assistant-data:/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     # 故意不声明 ports：仅通过内部网络供 nginx 访问，公网只开放 80/443
     restart: unless-stopped
 
@@ -39,5 +46,55 @@ services:
       - api
     restart: unless-stopped
 
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER 未配置}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD 未配置}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB 未配置}
+    volumes: [pg-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7
+    command: redis-server --maxmemory 64mb --maxmemory-policy noeviction
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+      
+
+  worker:
+    command: node dist/worker
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    environment:
+      NODE_ENV: production
+      DATA_DIR: /app/data
+      # 缺失则容器启动即失败（见 common/paths.ts 的 requiredEnv），不会静默退回开发兜底值
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET 未配置}
+      ADMIN_USER: ${ADMIN_USER:-admin}
+      ADMIN_PASS: ${ADMIN_PASS:?ADMIN_PASS 未配置}
+      # 与本地保持一致，避免对话时间戳与用量时间偏移
+      TZ: Asia/Shanghai
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL 未配置}
+      REDIS_URL: ${REDIS_URL:?REDIS_URL 未配置}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    # 故意不声明 ports：仅通过内部网络供 nginx 访问，公网只开放 80/443
+    restart: unless-stopped
+
 volumes:
   assistant-data:
+  pg-data:

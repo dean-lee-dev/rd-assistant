@@ -31,5 +31,5 @@ RUN mkdir -p /app/data && chown -R node:node /app/data
 USER node
 
 EXPOSE 3000
-# 启动前 apply migration；DATABASE_URL 由 entry 脚本按 DATA_DIR 拼出
-CMD ["sh", "-c", "export DATABASE_URL=\"file:${DATA_DIR}/assistant.prisma.sqlite\" && npx prisma migrate deploy && node dist/main"]
+# 启动前 migrate，连接串来自环境变量
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/main"]
