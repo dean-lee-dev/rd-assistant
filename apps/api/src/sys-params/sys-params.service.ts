@@ -308,9 +308,8 @@ export class SysParamsService {
       '【最近一次 AI 分析】',
       state.analysisMarkdown || '（尚未生成分析）',
       '',
-      '【参数明细摘要】',
-      JSON.stringify(contextRows.slice(0, 80).map((r) => toFullRow(r))),
-      contextRows.length > 80 ? `\n（共 ${contextRows.length} 条，摘要仅含前 80 条）` : '',
+      '【参数明细】',
+      JSON.stringify(contextRows.map((r) => toFullRow(r))),
     ].join('\n');
 
     const messages = [

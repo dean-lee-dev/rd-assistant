@@ -2,7 +2,9 @@
 FROM node:22-bookworm-slim AS build
 WORKDIR /build
 COPY apps/web/package.json apps/web/package-lock.json ./
-RUN npm ci
+# lockfile 的 resolved 指向公司 Nexus，构建时改写成腾讯云镜像
+RUN sed -i 's|http://nexus.iheatingos.com/repository/npm-group|https://mirrors.tencentyun.com/npm|g' package-lock.json \
+  && npm ci
 COPY apps/web/angular.json apps/web/tsconfig*.json ./
 COPY apps/web/src ./src
 COPY apps/web/public ./public

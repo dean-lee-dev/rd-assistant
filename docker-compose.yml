@@ -5,6 +5,7 @@
 
 services:
   api:
+    image: rd-assistant-api
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -38,6 +39,7 @@ services:
       - '443:443'
     volumes:
       - ./deploy/.htpasswd:/etc/nginx/.htpasswd:ro
+      - ./deploy/nginx.conf:/etc/nginx/conf.d/default.conf:ro
       - ./deploy/certs:/etc/nginx/certs:ro
       - ./deploy/certbot-webroot:/var/www/certbot
     environment:
@@ -72,10 +74,9 @@ services:
       
 
   worker:
+    image: rd-assistant-api
+    pull_policy: never
     command: node dist/worker
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
     environment:
       NODE_ENV: production
       DATA_DIR: /app/data
