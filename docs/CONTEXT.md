@@ -46,9 +46,9 @@
 | 需求澄清 | 已完成 |
 | 技术方案 | 已完成 |
 | 代码实现 | **MVP 已落地**；2026-07-29 上云改造；2026-08-07 Prisma + Fastify；**2026-08-25 本地切 PostgreSQL 17.11** |
-| 部署就绪 | 练习 15 进行中：compose 尚未加 postgres/redis/worker；Dockerfile CMD 仍拼 sqlite。待仓库改完 + 服务器证书 / htpasswd / `.env` |
+| 部署就绪 | 练习 15 仓库 A 已完成并 push。正在做服务器 B：安全组 → Docker+swap → 域名证书 → htpasswd → 根目录 `.env` → `compose up` |
 | 默认管理员 | `admin` / `admin123`（见 README） |
-| 联调 | 登录、工时导入、规则周报生成已用样例验证；AI 需自行配置 Key |
+| 联调 | 2026-09-24 本机已起：PG 服务 Running、WSL Redis 6379、`start:dev` 3000、`start:worker`、前端 5173。登录 `admin` / `admin123`。AI 需自行配置 Key |
 
 ## 目录
 
@@ -373,6 +373,66 @@ README.md
 | 2026-08-28 10:00 | 练习 15 三次 review：postgres/redis healthcheck、command、pg-data、worker 连接串已齐。compose 结构可过。P1：README/文件头仍写 sqlite；worker 未挂上传卷；mem_limit 未写。仓库 A 段差文档；B 段（服务器）未做。 |
 | 2026-08-28 10:01 | 练习 15：已改 README 部署节、compose 文件头、`.env.example`。本地启动说明补上 `start:worker`。下一步服务器 B 段：安全组 → Docker → 域名证书 → htpasswd → 根目录 `.env` → `compose up`。 |
 | 2026-08-28 18:20 | 提交并 push 练习 15 仓库 A 段：compose 加 postgres/redis/worker，Dockerfile CMD 用环境变量 migrate。服务器 B 段未做。 |
+| 2026-09-04 18:14 | 本地 `start:dev` 起不来：`ECONNREFUSED 127.0.0.1:6379`。本机 Redis 没开（练习 16 起配额/队列都要它）。与 compose 主机名 `redis` 无关。 |
+| 2026-09-04 18:17 | 答疑：本地 PG 用已装的 17.11 Windows 服务启动，不是 compose。`postgresql-x64-17` 或「服务」里找 PostgreSQL。不要用根目录 `.env` 的主机名 `postgres`。 |
+| 2026-09-04 18:28 | 答疑：psql 报错是 PowerShell 把弯引号整段当成命令名。应用 `& "D:\software\PostgreSQL\17\bin\psql.exe"` 加直引号。 |
+| 2026-09-24 14:24 | 用户要求启动本地前后端和数据库。`postgresql-x64-17` 已是 Running（5432）。本机 Memurai 目录不完整、无 Windows Redis 服务；用 WSL Ubuntu `redis-server`（`127.0.0.1:6379` PONG）。先后端再 worker，避免同时清 `dist` 的 EPERM。`GET /api/health` 与 `http://localhost:5173` 已通。练习 15 服务器 B 段未做。 |
+| 2026-09-24 14:46 | 答疑：配置洞察右侧对话只能看到前 80 条，是 `chatStream` 里写死的 `slice(0, 80)`，用来压 system prompt 体积；分析接口会把范围内全部行塞进 prompt，没有这道截断。对话历史另有 `slice(-40)`。 |
+| 2026-09-24 14:48 | 用户要求对话不要设条数上限。已去掉 `slice(0, 80)`，`chatStream` 把当前范围（全部或勾选）整表行塞进 system prompt，与分析侧一致。聊天轮次仍 `slice(-40)`。 |
+| 2026-09-24 14:53 | 用户问服务是否报错。是：WSL Redis 只绑 `127.0.0.1` 后 Windows 转发断了，API ioredis `ECONNREFUSED :6379` → `MaxRetriesPerRequestError` 进程退出，前端 `/api/sys-params` 代理失败。已用 root 把 Redis 绑到 `0.0.0.0:6379`，API health 已恢复。 |
+| 2026-09-30 13:30 | 用户继续上云。仓库 A 已齐，开服务器 B。顺序：安全组 22/80/443 → Docker+swap → 域名+certbot 放到 `deploy/certs/` → htpasswd → 根目录 `.env` → `compose up`。nginx 443 依赖证书文件，必须先签再启动 web。 |
+| 2026-09-30 13:36 | 答疑：买的是腾讯云**轻量应用服务器**，没有 CVM 的「安全组」。在实例页顶栏点 **防火墙**，放行 22/80/443。 |
+| 2026-09-30 13:37 | 轻量防火墙默认已有 22、80、ICMP。还缺 **443**，需要自己加。 |
+| 2026-09-30 13:39 | 防火墙已齐：443 / 22 / 80 / ICMP。下一步装 Docker Engine + Compose 插件，并加 1～2GB swap。 |
+| 2026-09-30 13:46 | 轻量 Ubuntu 22.04 上官方 `docker-ce` 源没加上（echo 源行被复制坏了 / 国内访问 download.docker.com 不稳），`Unable to locate package docker-ce`。改走系统包 `docker.io` + `docker-compose-v2`。 |
+| 2026-09-30 13:47 | `docker` 仍未找到。多半是上次坏掉的 docker.list 让整次 `apt install docker.io docker-compose-v2` 失败，或 `docker-compose-v2` 包名不存在导致两个都没装上。先删坏源，再单独装 `docker.io`。 |
+| 2026-09-30 13:50 | 服务器 Docker 已就绪：`docker.io` 26.1.3、`docker-compose-v2` 2.40.3。下一步确认 swap，然后域名 A 记录 + certbot（先证书再 compose）。 |
+| 2026-09-30 13:51 | 轻量机 `free -h`：内存约 2G，Swap 已有约 2G。Docker + swap 过。下一步域名 A 记录 + certbot。 |
+| 2026-09-30 13:55 | 域名 `deanlee.ccwu.cc` 已解析到轻量公网 IP。下一步服务器上 `certbot certonly --standalone -d deanlee.ccwu.cc`，再拷到 `deploy/certs/`。 |
+| 2026-09-30 13:57 | certbot 卡在 Let's Encrypt 服务条款。输入 `Y` 回车即可。 |
+| 2026-09-30 13:58 | certbot standalone 失败：`43.174.225.201` 访问 `http://deanlee.ccwu.cc` 被腾讯云 `dnspod.qcloud.com/static/webblock.html` 拦截（国内未备案域名常见）。A 记录和防火墙没问题。 |
+| 2026-09-30 14:03 | 用户决定先不上域名，用公网 IP 访问。nginx 仍要 443 证书文件，改在服务器用 openssl 自签（SAN 为该 IP），浏览器会提示不受信任。备案/Let's Encrypt 以后再做。 |
+| 2026-09-30 14:09 | 答疑：`htpasswd` 是 nginx 整站 Basic Auth（浏览器弹窗），保护静态页和 `/uploads`。应用登录是 `.env` 的 `ADMIN_USER` / `ADMIN_PASS`，两套密码分开。 |
+| 2026-09-30 14:10 | 答疑：Basic Auth 由 `deploy/nginx.conf` 的 `auth_basic` 实现，凭据文件 compose 挂到容器内 `/etc/nginx/.htpasswd`。Nest 登录不读这份文件。 |
+| 2026-09-30 14:12 | 继续服务器 B：证书与 htpasswd 之后填根目录 `.env`，再 `docker compose up -d --build`。 |
+| 2026-09-30 14:15 | 答疑：云上 Postgres 密码不是预置的。在服务器 `~/rd-assistant/.env` 里自己写 `POSTGRES_PASSWORD`，并原样放进 `DATABASE_URL`。官方镜像第一次启动用它建用户。与 htpasswd、`ADMIN_PASS` 各是一套。 |
+| 2026-09-30 14:17 | `docker compose up` 报 `permission denied` 连 `/var/run/docker.sock`。当前 SSH 会话还没进 `docker` 组。先 `sudo docker compose up -d --build`。 |
+| 2026-09-30 14:19 | `postgres:17` / `redis:7` 拉镜像超时：`registry-1.docker.io:443 i/o timeout`。国内轻量访问 Docker Hub 不稳。先给 Docker 配腾讯云镜像 `mirror.ccs.tencentyun.com` 再 build。 |
+| 2026-09-30 14:43 | 腾讯云镜像生效。`node:22-bookworm-slim` 已拉完，compose 正在构建 api/worker（容器内 `apt-get` 装 python3/make/g++）。用户确认是否还在下载：是构建中的包下载，不要中断。 |
+| 2026-09-30 14:48 | 答疑：讲解 compose 构建原理。先拉基础镜像，再在镜像里编译出 api/worker/web；运行时五个容器只在内部网络互通，公网只进 nginx。 |
+| 2026-09-30 14:52 | 答疑：`postgres:17`、`redis:7`、`node:22`、`nginx` 是 Docker Hub 官方镜像（版本号在冒号后）。腾讯云镜像源只是缓存，不改内容。api/worker/web 才是本仓库 Dockerfile 在这些基础上构建的。 |
+| 2026-09-30 14:53 | 答疑：在 `~/rd-assistant` 执行的 `docker compose up -d --build` 读的就是仓库根目录 `docker-compose.yml`。`--build` 先按其中 `build:` 构建 api/worker/web，`up -d` 再按服务定义后台启动五个容器。 |
+| 2026-09-30 14:58 | 答疑：`compose up` 成功回到提示符只表示容器已按编排启动。还要 `docker compose ps` 五个都在跑，再用 `https://公网IP` 过自签警告、Basic Auth 和应用登录，才算这次部署可用。 |
+| 2026-09-30 15:00 | 答疑：构建约 38 分钟停在 11/33，屏幕停在 runtime 的 COPY。BuildKit 会先做不依赖编译的 COPY；真正耗时且无输出的是 build 阶段 `npm ci`。Docker 不显示剩余时间。看左上角 CPU 是否还在动。 |
+| 2026-09-30 15:01 | 答疑：`11/33` 的 11 是已完成指令数。当前指令是 Dockerfile 里的一整句 `RUN npm ci`，结束前数字不会加。 |
+| 2026-09-30 15:02 | 答疑：`npm ci` 慢是因为 2C2G 上 api 与 worker 各装一遍依赖，内存不够就用 swap；npm 包走 registry.npmjs.org，国内慢。bcrypt 可能还要本地编译。 |
+| 2026-09-30 15:20 | 答疑：这一步可能要几十分钟，也可能卡死在 npmjs.org。用第二个 SSH 看有没有 `npm`/`node` 进程和 CPU，不要在原窗口 Ctrl+C。 |
+| 2026-09-30 15:21 | 第二个 SSH 无 `npm`/`node`，Swap 几乎没用。构建已堵住。处理：Ctrl+C；Dockerfile 的 `npm ci` 改走 npmmirror；worker 去掉独立 `build`，改用 `image: rd-assistant-api`，只编译一次。服务器上的克隆要自行改这三处，本地改动尚未提交。 |
+| 2026-09-30 15:24 | 服务器上三处已改对：api/worker 都是 `rd-assistant-api`，web 仍单独 `build`，两个 Dockerfile 的 `npm ci` 走 npmmirror。可以重新 `compose up --build`。 |
+| 2026-09-30 15:27 | `up --build` 时 worker 去腾讯云镜像站拉 `rd-assistant-api:latest`，该名只是本地标签。worker 增加 `pull_policy: never`，先 `compose build api web` 再 `compose up -d`。 |
+| 2026-09-30 15:36 | `compose build api web` 已过 pull_policy 修改。apt 与 COPY 为 CACHED，约 4 分钟时停在 `npm ci`（8/19），这一步无日志。用另一 SSH 看 `npm` 进程是否存在。 |
+| 2026-09-30 15:38 | 第二个 SSH 仍无 `npm` 进程。下一步看构建窗口秒数是否还涨，并 `docker ps` / `ps` 查 buildkit。没有容器就中断，改用 `--progress=plain` 重编 api。 |
+| 2026-09-30 15:39 | `docker ps` 为空。buildkit 的 `runc` 自 15:32 起 CPU 时间为 0，构建已卡住。中断后改 `docker compose build --progress=plain api`。 |
+| 2026-09-30 15:41 | `--progress=plain` 已有输出：前几步 CACHED，第 9 步 `apt-get` 正在拉 Debian 索引（约 8.7MB Packages）。这次不是卡死，继续等，后面才是 `npm ci`。 |
+| 2026-09-30 15:43 | 第 9 步停在 `deb.debian.org` 的 `apt-get`，之前几次「没日志」多半也是这里，还没进 `npm ci`。Dockerfile 改为先把源换成 `mirrors.tencentyun.com`。服务器克隆需自行改。 |
+| 2026-09-30 15:46 | 换源后 `apt-get` 30 秒完成。构建第一次真正进入第 13 步 `npm ci`（npmmirror）。 |
+| 2026-09-30 15:47 | 第二个 SSH 能看到 `npm ci`，已运行约 2 分钟且 CPU 非 0。继续等，不要中断。 |
+| 2026-09-30 15:58 | api 构建第 13 步 `npm ci` 约 474 秒后失败：`Exit handler never called`。2G 机器上这通常是内存耗尽进程被杀掉。下一步加一块 2G swap，并限制 npm 堆和并发后重编。 |
+| 2026-09-30 16:05 | 用户要求改 npm 源。`registry.npmmirror.com` 换成腾讯云内网源 `https://mirrors.tencentyun.com/npm`。服务器克隆需自行替换。 |
+| 2026-09-30 16:07 | 服务器 Dockerfile 已改到 `mirrors.tencentyun.com/npm`，api 仍限制 `maxsockets=1`。`fallocate /swapfile2` 报 Text file busy，说明这块 swap 已在用，不必重建。 |
+| 2026-09-30 16:16 | 换腾讯云 npm 源后 `npm ci` 仍在约 472 秒报 `Exit handler never called`。原因：`package-lock.json` 的 `resolved` 全是 `http://nexus.iheatingos.com/repository/npm-group/`，`npm ci` 按这个地址下包，改 registry 不生效。构建时 sed 改写 lockfile 再安装，不改仓库里的 lockfile。 |
+| 2026-09-30 16:20 | 答疑：lockfile 的 Nexus 地址来自本机用户级 `~/.npmrc` 的 `registry=http://nexus.iheatingos.com/repository/npm-group/`。当时 `npm install` 把这个源写进了 `resolved`。仓库里没有 `.npmrc`。 |
+| 2026-09-30 16:24 | 服务器上 `rd-assistant-api` 镜像构建成功（`npm ci` 约 46 秒）。下一步构建 web，再 `docker compose up -d`。 |
+| 2026-09-30 16:26 | `docker compose ps`：api、web、worker、postgres(healthy)、redis(healthy) 均 Up。web 映射 80/443。下一步浏览器开 `https://公网IP`：自签警告 → Basic Auth → 应用登录。 |
+| 2026-09-30 16:28 | 云上登录页仍提示 `admin/admin123`，用它登录失败。生产 seed 用的是首次启动时 `.env` 的 `ADMIN_PASS`，不是开发兜底。登录页蓝字是写死的，生产构建也会显示。 |
+| 2026-09-30 16:31 | 浏览器 `POST /api/auth/login` 返回 **502**。nginx 已收到请求，但上游 api 没有正常响应。API 监听 `0.0.0.0:3000`，502 更像是 api 容器退出或还没起来。下一步看 `docker compose ps` 和 `logs api`。 |
+| 2026-09-30 16:33 | api 日志：运行镜像没有 openssl，`prisma migrate` 以 node 用户写不了 `/app/node_modules/prisma/prisma-engines`，容器反复退出，nginx 502。运行阶段补装 openssl，并把 `/app` 交给 node。依赖其实已在构建阶段装过。 |
+| 2026-09-30 16:40 | 用户说仍是 502。运行阶段改为安装 openssl 后以 root 启动，避免命名卷 `/app/data` 属主是 root 时 node 用户写目录失败。服务器需按新的 runtime 段重建 api 镜像。 |
+| 2026-09-30 16:42 | api 日志已是 `Nest application successfully started` 且 Redis 就绪。web 容器未重建，nginx 仍解析到旧的 api IP，所以继续 502。需要 `docker compose restart web`。 |
+| 2026-09-30 16:45 | 重启 web 后已进入工时周报页。浏览器反复弹出带站点地址的用户名/密码框，是 nginx Basic Auth（`deploy/.htpasswd`），不是应用登录，也不是 `admin123`。 |
+| 2026-09-30 16:47 | 用户确认 htpasswd 密码输入正确仍被拒。Ubuntu 的 `htpasswd` 默认 bcrypt（`$2y$`），nginx:1.27-alpine 校验不了。应 `htpasswd -cm` 生成 `$apr1$` 再 `restart web`。 |
+| 2026-09-30 16:49 | 改成 `$apr1$` 后弹框仍在。原因是接口把 `Authorization` 换成 Bearer，nginx 整站 Basic 把它当成未登录。`/api/` 关闭 `auth_basic`，页面和 `/uploads` 仍要 Basic。nginx.conf 改为挂载，避免重编 web。 |
+| 2026-10-14 13:56 | 答疑：项目从 2026-07-27 开始。技术方案 `createdAt` 13:40，当天 16:56 首次提交。 |
 
 ## NestJS 手写练习（学习轨）
 
@@ -1068,11 +1128,11 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 **9 → … → 13 → 14 → 16 → 17 → 18 → 15（上云）**  
 本地先把 PG/Redis/队列跑通；compose 在腾讯云 2C2G 上做。
 
-下一步：练习 15 需求已开（腾讯云 2C2G：compose + 证书 / htpasswd / 服务器 `.env`）。本地 `start:dev` 不变。
+下一步：练习 15 仓库 A 已过，正在做服务器 B（安全组 / Docker / 证书 / htpasswd / `.env` / `compose up`）。本地 `start:dev` 不变。
 
 ## 下一对话建议开场动作
 
-1. 用户实现练习 15 仓库改动，或问 2C2G / 证书 / 安全组。  
+1. 用户做练习 15 服务器 B，或问安全组 / Docker / 证书 / `.env`。  
 2. 本地仍不用 Docker 开发；云上不要暴露 5432/6379/3000。  
 3. 2C2G 不要在服务器上编译前端；建议 swap 或本机 build 镜像。  
-4. 三个本地进程照旧：`start:dev` + `start:worker` + 前端。
+4. **先签证书再 `compose up`**：nginx 443 启动就要 `deploy/certs/*.pem`，没有证书 web 容器会起不来。
