@@ -29,7 +29,19 @@ npm install
 
 ## 启动
 
-本地需要本机 PostgreSQL、本机 Redis，以及三个终端（周报「生成」走队列，必须另开 worker）：
+本地需要本机 PostgreSQL、本机 Redis，以及 API / Worker / Web（周报「生成」走队列，必须开 worker）。
+
+### 一键启动（Windows）
+
+仓库根目录执行（会起 PG 服务、WSL Redis，并各开一个窗口跑 api / worker / web）：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\dev-up.ps1
+```
+
+若 PostgreSQL 服务启动失败，用管理员 PowerShell 再跑一次，或手动 `Start-Service postgresql-x64-17`。
+
+### 手动三个终端
 
 ```bash
 # 终端 1 — API http://localhost:3000
@@ -100,14 +112,12 @@ openssl rand -base64 48        # 填入 JWT_SECRET；ADMIN_PASS / POSTGRES_PASSW
 # REDIS_URL=redis://redis:6379
 chmod 600 .env
 
-# 2. 生成整站 Basic Auth 凭据（在应用登录之外再加一道门；必须配 HTTPS）
-htpasswd -c deploy/.htpasswd <用户名>
-
-# 3. 放置证书（certbot 签发后）
+# 2. 放置证书（自签或 certbot）
 #    deploy/certs/fullchain.pem
 #    deploy/certs/privkey.pem
+# 可选：若仍挂了 deploy/.htpasswd，当前 nginx 已关闭 Basic Auth，不再弹浏览器验证框。
 
-# 4. 启动（仅 api 容器会 prisma migrate deploy）
+# 3. 启动（仅 api 容器会 prisma migrate deploy）
 docker compose up -d --build
 ```
 
@@ -120,7 +130,7 @@ docker compose up -d --build
 - **不要加 `replicas`。** 一台机一份 postgres / redis / worker 即可。
 - **不要**把 3000、5432、6379 映射到宿主机或安全组。
 - 2GB 内存上尽量避免同时 `docker compose build` api+web；4GB 一般可在机上构建。构建仍建议保留少量 swap。
-- **Basic Auth 必须配合 HTTPS**：凭证只是 base64 编码。它同时保护了 `/uploads`（浏览器对 `<img>` 会自动附带同源 Basic 凭证）。
+- **浏览器层 Basic Auth 已关闭**，鉴权只靠应用 JWT 登录。`/uploads` 知道 URL 即可访问。
 - **上传卷**挂 `DATA_DIR`（容器内 `/app/data`，volume `assistant-data`）。**数据库**用独立 volume `pg-data`，不要和上传混在一个目录。
 - nginx 已配 `proxy_buffering off` 与 `proxy_read_timeout 600s`，缺任一项都会让 SSE 表现为「卡很久后一次性全部出现」或长分析被掐断。
 - 上传限制 50MB（`MAX_EXCEL_UPLOAD_BYTES` 与 nginx `client_max_body_size` 需保持一致），仅接受 `.xlsx`。

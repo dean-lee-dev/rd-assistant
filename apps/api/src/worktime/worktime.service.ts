@@ -227,9 +227,14 @@ export class WorktimeService {
       JSON.stringify(
         importRecords.map((r) => ({
           taskId: r.taskId,
-          taskName: r.taskName,
+          requirementName: r.requirementName,
+          taskTitle: r.taskTitle,
           taskType: r.taskType,
-          remark: r.remark,
+          // description 可能很长；对话只带截断摘要，避免撑爆上下文
+          description: truncateText(
+            String(r.description || r.remark || ''),
+            160,
+          ),
           workDate: r.workDate,
           hours: r.hours,
         })),
@@ -492,6 +497,12 @@ function escapeHtml(s: string): string {
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+}
+
+function truncateText(value: string, max: number): string {
+  const text = String(value || '').trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max)}…`;
 }
 
 function tasksToHtml(tasks: WeeklyReportTaskItem[]): string {

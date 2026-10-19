@@ -46,7 +46,7 @@
 | 需求澄清 | 已完成 |
 | 技术方案 | 已完成 |
 | 代码实现 | **MVP 已落地**；2026-07-29 上云改造；2026-08-07 Prisma + Fastify；**2026-08-25 本地切 PostgreSQL 17.11** |
-| 部署就绪 | 练习 15 仓库 A 已完成并 push。正在做服务器 B：安全组 → Docker+swap → 域名证书 → htpasswd → 根目录 `.env` → `compose up` |
+| 部署就绪 | 练习 15 云上已能用公网 IP + 自签证书访问。待收尾：确认 Basic Auth 弹框修好、把本机 Dockerfile/compose/nginx 改动提交、验收周报入队；域名备案 / Let's Encrypt 后做 |
 | 默认管理员 | `admin` / `admin123`（见 README） |
 | 联调 | 2026-09-24 本机已起：PG 服务 Running、WSL Redis 6379、`start:dev` 3000、`start:worker`、前端 5173。登录 `admin` / `admin123`。AI 需自行配置 Key |
 
@@ -88,8 +88,7 @@ README.md
 
 ### 关键前提：nginx 整站 Basic Auth
 
-在 nginx server 块加 `auth_basic` + `auth_basic_user_file`。零代码改动、不影响本地，一举兜住：`/uploads` 公网裸奔、伪造 JWT 摸到登录接口、AI 接口被外人刷 token、上传 DoS。
-**对 `<img>` 有效**（浏览器同源自动附带 Basic 凭证，图片不裂）——这正是它优于「给 `/uploads` 套 JwtAuthGuard」的原因，后者会让详情弹框全裂图。前提：必须 HTTPS。
+~~在 nginx server 块加整站 Basic Auth~~ **已关闭（2026-10-19）**：浏览器不再弹用户名/密码框，鉴权只靠应用 JWT。代价：`/uploads` 知道 URL 即可公网访问。
 
 ### 必须改代码（3 项，均保持本地行为不变）— ✅ 已完成
 
@@ -102,7 +101,7 @@ README.md
 
 ### 必须做配置（不动代码）— ✅ 已完成
 
-- [x] **nginx**（`deploy/nginx.conf`）：`proxy_buffering off` + `proxy_cache off` + `proxy_read_timeout/send_timeout 600s`；SPA `try_files`；整站 `auth_basic`；`client_max_body_size 50m`；80 → 443 跳转与 ACME 挑战路径。
+- [x] **nginx**（`deploy/nginx.conf`）：`proxy_buffering off` + `proxy_cache off` + `proxy_read_timeout/send_timeout 600s`；SPA `try_files`；`client_max_body_size 50m`；80 → 443 跳转与 ACME 挑战路径。**Basic Auth 已关**。
 - [x] **`.dockerignore`**：排除 `apps/data`、`data`、`node_modules`、`.git`、`.env`、`deploy/.htpasswd`、`deploy/certs`。
 - [x] **compose**（`docker-compose.yml`）：api **不声明 `ports`**；`TZ=Asia/Shanghai`；命名卷挂 `/app/data`；`JWT_SECRET`/`ADMIN_PASS` 用 `${VAR:?}` 强制。
 - [x] **Dockerfile ×2**：api 多阶段（构建阶段装 python3/make/g++ 供 bcrypt 回退编译，`npm prune --omit=dev` 后复制 node_modules，避免运行阶段二次安装）；web 构建后交 `nginx:1.27-alpine`（产物路径 `dist/web/browser`，已确认）。
@@ -126,8 +125,7 @@ README.md
 
 **P0（数据/正确性，建议先修）**
 
-1. `worktime.service.ts` `chatStream` 拼上下文取 `r.taskName`（不存在字段，实际为 `taskTitle`/`requirementName`），且取 `remark` 而非 `description` → 周报对话的工时明细上下文近乎空壳。
-   - **实现约束**：`description` 是正文主体，补进去会让输入膨胀一两个数量级，而输入侧目前无任何截断（`maxTokens: 2048` 只限输出）。必须与 P1-5 的 token 预算一起做，否则可能撞上游 context length。
+1. ~~`worktime.service.ts` `chatStream` 拼上下文取 `r.taskName`（不存在字段）~~ **已修（2026-10-16）**：改为 `taskTitle` / `requirementName`，`description`（无则 `remark`）截断 160 字，避免撑爆对话上下文。
 2. `sys-params.service.ts` 导入为 `clear()` + `save()` **无事务**，save 失败即整表数据永久丢失；违反技术方案 §7「事务 + 回滚」约定。
    - **已查证可行**：`SqljsQueryRunner` 仅在最外层 `commitTransaction` 与 `release` 时 `flush()`→`autoSave()`，普通 query 只置 `isDirty`；故事务中间态不落盘，回滚后 release 写回的是已恢复的旧数据。`clearTable` 对 sqlite 是 `DELETE FROM`（TypeORM 注释中的 TRUNCATE 说明不适用），可回滚。
    - **陷阱**：必须用事务的 EntityManager（`em.clear(SysParam)`）；沿用注入的 `this.params.clear()` 会走独立 queryRunner，脱离事务并立即落盘，原子性静默失效。
@@ -433,6 +431,12 @@ README.md
 | 2026-09-30 16:47 | 用户确认 htpasswd 密码输入正确仍被拒。Ubuntu 的 `htpasswd` 默认 bcrypt（`$2y$`），nginx:1.27-alpine 校验不了。应 `htpasswd -cm` 生成 `$apr1$` 再 `restart web`。 |
 | 2026-09-30 16:49 | 改成 `$apr1$` 后弹框仍在。原因是接口把 `Authorization` 换成 Bearer，nginx 整站 Basic 把它当成未登录。`/api/` 关闭 `auth_basic`，页面和 `/uploads` 仍要 Basic。nginx.conf 改为挂载，避免重编 web。 |
 | 2026-10-14 13:56 | 答疑：项目从 2026-07-27 开始。技术方案 `createdAt` 13:40，当天 16:56 首次提交。 |
+| 2026-10-16 15:37 | 答疑「之后计划」：先收尾练习 15（云上验收 + 提交本机部署修复）；域名备案后再正式证书；然后修待修 P0（周报对话字段等）。Nest 手写轨已无 19+。 |
+| 2026-10-16 15:59 | 用户要本地一键启动。新增 `scripts/dev-up.ps1`：起 `postgresql-x64-17`、WSL Redis、再开三窗口跑 api/worker/web。README 补说明。worker 一并启动（周报队列需要）。 |
+| 2026-10-16 16:01 | 用户要启动并做第三条（待修债）。修好 `dev-up.ps1` 编码/`||` 解析后本机栈已起。修 P0-1：`chatStream` 用 `taskTitle`/`requirementName` + 截断 `description`，去掉错误的 `taskName`。 |
+| 2026-10-19 15:53 | 用户要求关闭浏览器层 Basic Auth。`deploy/nginx.conf` 去掉 `auth_basic`；鉴权只靠应用 JWT。云上需同步配置并 `docker compose up -d web`（或 restart）。注意 `/uploads` 将公网可读。 |
+| 2026-10-19 15:57 | 答疑：`sudo docker compose up -d web` = 用 root 权限，按 compose 只重建/启动名为 web 的服务，`-d` 后台跑，不动 postgres/redis/api/worker。 |
+| 2026-10-19 15:57 | 答疑：`up -d web` 不 `git pull`，也不默认 `--build`。nginx.conf 已挂载时 restart/up 即生效；镜像内拷贝的旧配置要先 pull 再 `build web`。 |
 
 ## NestJS 手写练习（学习轨）
 
@@ -1128,11 +1132,11 @@ Passport JWT 已经在 `jwt.strategy.ts` 的 `validate()` 里返回 `{ userId, u
 **9 → … → 13 → 14 → 16 → 17 → 18 → 15（上云）**  
 本地先把 PG/Redis/队列跑通；compose 在腾讯云 2C2G 上做。
 
-下一步：练习 15 仓库 A 已过，正在做服务器 B（安全组 / Docker / 证书 / htpasswd / `.env` / `compose up`）。本地 `start:dev` 不变。
+下一步：收尾练习 15（云上验收 + 把本机部署修复提交）；然后按优先级修待修问题；域名备案后换正式证书。Nest 手写 1–18（除 15）已完成，无已开的 19+。
 
 ## 下一对话建议开场动作
 
-1. 用户做练习 15 服务器 B，或问安全组 / Docker / 证书 / `.env`。  
-2. 本地仍不用 Docker 开发；云上不要暴露 5432/6379/3000。  
-3. 2C2G 不要在服务器上编译前端；建议 swap 或本机 build 镜像。  
-4. **先签证书再 `compose up`**：nginx 443 启动就要 `deploy/certs/*.pem`，没有证书 web 容器会起不来。
+1. 练习 15 收尾：确认 Basic Auth 弹框、周报入队 completed、配额 429；本机 Dockerfile/compose/nginx 改动提交 push。  
+2. 域名 `deanlee.ccwu.cc` 备案通过后再 Let's Encrypt，替换自签证书。  
+3. 待修 P0：周报对话 `taskName` → 正确字段；其它见「待修问题」。  
+4. 本地仍 `start:dev` + 本机 PG/Redis；云上不暴露 5432/6379/3000。
